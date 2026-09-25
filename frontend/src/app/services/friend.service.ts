@@ -26,6 +26,9 @@ export interface FriendSessionState {
   hostDeviceId: string;
   participantCount: number;
   maxParticipants: number;
+  meetingLatitude?: number | null;
+  meetingLongitude?: number | null;
+  meetingUpdatedAtUtc?: string | null;
   participants: FriendParticipantState[];
 }
 
@@ -84,9 +87,7 @@ export class FriendService {
       if (!this.connection || !this.connectedSessionCode || !this.connectedDeviceId) return;
       try {
         await this.connection.invoke('ConnectToSession', this.connectedSessionCode, this.connectedDeviceId);
-      } catch {
-        // The normal UI callbacks will handle a closed/invalid session on next restore/reload.
-      }
+      } catch {}
     });
 
     await this.connection.start();
@@ -96,6 +97,13 @@ export class FriendService {
   async sendLocation(sessionCode: string, deviceId: string, latitude: number, longitude: number): Promise<void> {
     if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) return;
     await this.connection.invoke('UpdateLocation', sessionCode, deviceId, latitude, longitude);
+  }
+
+  async setMeetingPoint(sessionCode: string, deviceId: string, latitude: number, longitude: number): Promise<void> {
+    if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
+      throw new Error('Live connection is not ready.');
+    }
+    await this.connection.invoke('SetMeetingPoint', sessionCode, deviceId, latitude, longitude);
   }
 
   async leave(sessionCode: string, deviceId: string): Promise<void> {

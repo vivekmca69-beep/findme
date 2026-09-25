@@ -45,6 +45,24 @@ public class FriendHub : Hub
         });
     }
 
+    public async Task SetMeetingPoint(string sessionCode, string deviceId, double latitude, double longitude)
+    {
+        if (latitude is < -90 or > 90 || longitude is < -180 or > 180)
+            throw new HubException("Invalid meeting point coordinates.");
+
+        var session = await _store.GetAsync(sessionCode);
+        if (session is null)
+            throw new HubException("Session not found.");
+        if (session.HostDeviceId != deviceId)
+            throw new HubException("Only the host can set the meeting point.");
+
+        var updated = await _store.SetMeetingPointAsync(sessionCode, deviceId, latitude, longitude);
+        if (updated is null)
+            throw new HubException("Could not set meeting point.");
+
+        await Clients.Group(sessionCode).SendAsync("SessionState", BuildSessionState(updated));
+    }
+
     public async Task LeaveSession(string sessionCode, string deviceId)
     {
         var result = await _store.LeaveAsync(sessionCode, deviceId);
@@ -66,6 +84,9 @@ public class FriendHub : Hub
         hostDeviceId = session.HostDeviceId,
         participantCount = session.Participants.Count,
         maxParticipants = InMemoryFriendSessionStore.MaxParticipants,
+        meetingLatitude = session.MeetingLatitude,
+        meetingLongitude = session.MeetingLongitude,
+        meetingUpdatedAtUtc = session.MeetingUpdatedAtUtc,
         participants = session.Participants.Values
             .OrderBy(p => p.JoinedAtUtc)
             .Select(p => new

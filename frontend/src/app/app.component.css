@@ -98,3 +98,78 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(71,84,103,.24)
   .participant-row { grid-template-columns:40px minmax(0,1fr) auto; padding:9px 10px; }
   .participant-meta strong { font-size:.88rem; }
 }
+
+/* Advanced navigation, meeting-point, compass and participant status */
+.map-action { position:absolute; right:14px; bottom:68px; z-index:500; width:44px; height:44px; border:0; border-radius:14px; font-size:22px; cursor:pointer; }
+.navigation-panel,.compass-panel { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:13px; align-items:center; margin:0 0 16px; padding:14px 16px; border-radius:20px; background:#172033; color:#fff; box-shadow:0 12px 30px rgba(15,23,42,.16); }
+.nav-icon { width:44px; height:44px; display:grid; place-items:center; border-radius:14px; background:rgba(255,255,255,.1); font-size:24px; }
+.nav-copy { min-width:0; display:flex; flex-direction:column; gap:3px; }
+.nav-copy .micro-label,.compass-panel .micro-label { color:#a9b4c3; }
+.nav-copy strong { font-size:15px; line-height:1.25; }
+.nav-copy small,.compass-panel small { color:#b8c1cf; font-size:11px; }
+.compass-panel { grid-template-columns:auto minmax(0,1fr); background:linear-gradient(135deg,#111827,#243247); }
+.compass-dial { width:72px; height:72px; border-radius:50%; border:1px solid rgba(255,255,255,.18); display:grid; place-items:center; background:rgba(255,255,255,.06); }
+.compass-arrow { font-size:43px; line-height:1; transform-origin:center; transition:transform .18s ease-out; }
+.compass-panel strong { display:block; font-size:22px; margin:3px 0; }
+.advanced-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; margin:12px 0 14px; }
+.tool-button { border:1px solid #e3e8ef; border-radius:15px; background:#f8fafc; min-height:88px; padding:11px; display:flex; flex-direction:column; align-items:flex-start; gap:3px; text-align:left; cursor:pointer; color:#1f2937; }
+.tool-button > span { font-size:22px; }
+.tool-button strong { font-size:12px; }
+.tool-button small { font-size:10px; color:#7c889a; line-height:1.35; }
+.meeting-card { display:grid; grid-template-columns:42px minmax(0,1fr); gap:11px; align-items:center; padding:12px; border:1px solid #dbe5f0; border-radius:16px; background:#f7fbff; margin-bottom:14px; }
+.meeting-pin { width:42px; height:42px; border-radius:14px; display:grid; place-items:center; background:#e9f2ff; font-size:21px; }
+.meeting-card strong,.meeting-card small { display:block; }
+.meeting-card strong { margin-top:2px; font-size:13px; }
+.meeting-card small { margin-top:3px; color:#667085; font-size:10px; }
+.participant-status { display:inline-flex; align-items:center; justify-content:flex-end; gap:5px; margin-top:4px; font-size:10px; font-weight:800; }
+.participant-status i { width:7px; height:7px; border-radius:50%; background:#98a2b3; }
+.participant-status.live { color:#067647; }
+.participant-status.live i { background:#12b76a; box-shadow:0 0 0 4px rgba(18,183,106,.10); }
+.participant-status.recent { color:#b54708; }
+.participant-status.recent i { background:#f79009; }
+.participant-status.offline { color:#b42318; }
+.participant-status.offline i { background:#f04438; }
+.participant-status.waiting { color:#667085; }
+.participant-row { background:#f9fafb; color:#182230; }
+.participant-copy small,.participant-meta small { color:#7c889a; opacity:1; }
+@media (max-width:600px) {
+  .navigation-panel { grid-template-columns:auto minmax(0,1fr); }
+  .navigation-panel > .btn { grid-column:1 / -1; width:100%; }
+  .advanced-actions { grid-template-columns:1fr 1fr; }
+  .map-action { right:10px; bottom:66px; }
+}
+@media (max-width:420px) {
+  .advanced-actions { grid-template-columns:1fr; }
+}
+
+/* Premium map upgrade: keyless OpenStreetMap basemap + full-screen behavior */
+.map-stage { transition: border-radius .2s ease, inset .2s ease; }
+.map-type-toggle { position:absolute; top:14px; left:14px; z-index:650; display:flex; gap:3px; padding:4px; border-radius:14px; }
+.map-type-toggle button { min-height:36px; border:0; border-radius:10px; padding:0 12px; background:transparent; color:#475467; font:inherit; font-size:11px; font-weight:850; cursor:pointer; }
+.map-type-toggle button.active { background:#172033; color:#fff; box-shadow:0 5px 12px rgba(15,23,42,.16); }
+.map-control-stack { position:absolute; right:14px; top:14px; z-index:650; display:flex; flex-direction:column; gap:9px; }
+.map-stage--has-session .map-control-stack { top:78px; }
+.map-control { width:46px; height:46px; border:0; border-radius:14px; display:grid; place-items:center; font-size:22px; font-weight:800; color:#1f2937; cursor:pointer; box-shadow:0 8px 22px rgba(15,23,42,.16); }
+.map-stage--fullscreen { position:fixed; inset:0; z-index:9999; border-radius:0!important; margin:0!important; background:#eef2f6; }
+.map-stage--fullscreen .map { width:100%; height:100dvh; min-height:100dvh; border-radius:0; }
+.map-stage--fullscreen .session-float { top:14px; right:14px; }
+.map-stage--fullscreen .map-status { left:14px; bottom:16px; max-width:min(560px,calc(100% - 92px)); }
+.map-stage--fullscreen .map-control-stack { right:14px; top:14px; }
+.map-stage--fullscreen.map-stage--has-session .map-control-stack { top:78px; }
+:host ::ng-deep .leaflet-container { background:#e8edf3; font-family:inherit; }
+:host ::ng-deep .leaflet-control-zoom { margin-right:14px!important; margin-bottom:14px!important; overflow:hidden; border-radius:14px!important; box-shadow:0 8px 22px rgba(15,23,42,.16)!important; }
+:host ::ng-deep .leaflet-control-zoom a { width:42px!important; height:42px!important; line-height:42px!important; font-size:20px!important; background:#fff!important; }
+:host ::ng-deep .leaflet-tooltip { background:#fff; color:#1f2937; }
+body.findme-map-fullscreen-open { overflow:hidden; }
+@media (max-width:600px) {
+  .map-type-toggle { top:10px; left:10px; }
+  .map-type-toggle button { min-height:34px; padding:0 10px; }
+  .map-control-stack { right:10px; top:10px; }
+  .map-stage--has-session .session-float { top:58px; left:10px; right:10px; justify-content:space-between; }
+  .map-stage--has-session .map-control-stack { top:126px; }
+  .map-control { width:44px; height:44px; border-radius:13px; }
+  .map-status { max-width:calc(100% - 78px); }
+  .map-stage--fullscreen.map-stage--has-session .session-float { top:58px; left:10px; right:10px; width:auto; }
+  .map-stage--fullscreen.map-stage--has-session .map-control-stack { top:126px; right:10px; }
+  .map-stage--fullscreen .map-status { left:10px; bottom:12px; max-width:calc(100% - 78px); }
+}

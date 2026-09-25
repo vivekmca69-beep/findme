@@ -11,6 +11,7 @@ public interface IFriendSessionStore
     Task<FriendSession?> GetAsync(string code);
     Task<bool> UpdateLocationAsync(string code, string deviceId, double latitude, double longitude);
     Task<LeaveSessionResult> LeaveAsync(string code, string deviceId);
+    Task<FriendSession?> SetMeetingPointAsync(string code, string deviceId, double latitude, double longitude);
 }
 
 public record JoinSessionResult(bool Success, FriendSession? Session, string? Error);
@@ -88,6 +89,21 @@ public class InMemoryFriendSessionStore : IFriendSessionStore
         }
 
         return Task.FromResult(new LeaveSessionResult(true, false, session));
+    }
+
+    public Task<FriendSession?> SetMeetingPointAsync(string code, string deviceId, double latitude, double longitude)
+    {
+        if (!_sessions.TryGetValue(code, out var session) || session.HostDeviceId != deviceId)
+            return Task.FromResult<FriendSession?>(null);
+
+        lock (session.SyncRoot)
+        {
+            session.MeetingLatitude = latitude;
+            session.MeetingLongitude = longitude;
+            session.MeetingUpdatedAtUtc = DateTime.UtcNow;
+        }
+
+        return Task.FromResult<FriendSession?>(session);
     }
 
     internal static string GenerateCode() => string.Create(6, Random.Shared, static (span, random) =>
@@ -187,6 +203,22 @@ public class RedisFriendSessionStore : IFriendSessionStore
         });
     }
 
+    public async Task<FriendSession?> SetMeetingPointAsync(string code, string deviceId, double latitude, double longitude)
+    {
+        return await WithSessionLockAsync(code, async () =>
+        {
+            var session = await ReadAsync(code);
+            if (session is null || session.HostDeviceId != deviceId)
+                return null;
+
+            session.MeetingLatitude = latitude;
+            session.MeetingLongitude = longitude;
+            session.MeetingUpdatedAtUtc = DateTime.UtcNow;
+            await WriteAsync(session);
+            return session;
+        });
+    }
+
     private async Task<T> WithSessionLockAsync<T>(string code, Func<Task<T>> action)
     {
         var lockKey = LockPrefix + code;
@@ -224,6 +256,9 @@ public class FriendSession
     public string HostDeviceId { get; set; } = string.Empty;
     public DateTime CreatedAtUtc { get; set; }
     public ConcurrentDictionary<string, FriendParticipant> Participants { get; set; } = new();
+    public double? MeetingLatitude { get; set; }
+    public double? MeetingLongitude { get; set; }
+    public DateTime? MeetingUpdatedAtUtc { get; set; }
 
     [System.Text.Json.Serialization.JsonIgnore]
     public object SyncRoot { get; } = new();

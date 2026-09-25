@@ -7,10 +7,18 @@ export interface RoutePoint {
   longitude: number;
 }
 
+export interface RouteStep {
+  instruction: string;
+  distanceMeters: number;
+  durationSeconds: number;
+  type: number;
+}
+
 export interface WalkingRoute {
   distanceMeters: number;
   durationSeconds: number;
   points: RoutePoint[];
+  steps: RouteStep[];
 }
 
 @Injectable({ providedIn: 'root' })

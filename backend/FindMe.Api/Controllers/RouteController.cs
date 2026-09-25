@@ -41,7 +41,7 @@ public class RouteController : ControllerBase
         var client = _httpClientFactory.CreateClient();
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
-            "https://api.openrouteservice.org/v2/directions/foot-walking/geojson");
+            "https://api.heigit.org/openrouteservice/v2/directions/foot-walking/geojson");
 
         request.Headers.TryAddWithoutValidation("Authorization", apiKey);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/geo+json"));
@@ -52,7 +52,9 @@ public class RouteController : ControllerBase
             {
                 new[] { fromLng, fromLat },
                 new[] { toLng, toLat }
-            }
+            },
+            instructions = true,
+            language = "en"
         });
 
         request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
@@ -72,7 +74,8 @@ public class RouteController : ControllerBase
         using var document = JsonDocument.Parse(json);
         var feature = document.RootElement.GetProperty("features")[0];
         var coordinates = feature.GetProperty("geometry").GetProperty("coordinates");
-        var summary = feature.GetProperty("properties").GetProperty("summary");
+        var properties = feature.GetProperty("properties");
+        var summary = properties.GetProperty("summary");
 
         var points = new List<RoutePoint>();
         foreach (var coordinate in coordinates.EnumerateArray())
@@ -84,11 +87,31 @@ public class RouteController : ControllerBase
             });
         }
 
+        var steps = new List<RouteStep>();
+        if (properties.TryGetProperty("segments", out var segments) && segments.GetArrayLength() > 0)
+        {
+            var segment = segments[0];
+            if (segment.TryGetProperty("steps", out var rawSteps))
+            {
+                foreach (var rawStep in rawSteps.EnumerateArray())
+                {
+                    steps.Add(new RouteStep
+                    {
+                        Instruction = rawStep.TryGetProperty("instruction", out var instruction) ? instruction.GetString() ?? string.Empty : string.Empty,
+                        DistanceMeters = rawStep.TryGetProperty("distance", out var distance) ? distance.GetDouble() : 0,
+                        DurationSeconds = rawStep.TryGetProperty("duration", out var duration) ? duration.GetDouble() : 0,
+                        Type = rawStep.TryGetProperty("type", out var type) ? type.GetInt32() : 0
+                    });
+                }
+            }
+        }
+
         return Ok(new WalkingRouteResponse
         {
             DistanceMeters = summary.GetProperty("distance").GetDouble(),
             DurationSeconds = summary.GetProperty("duration").GetDouble(),
-            Points = points
+            Points = points,
+            Steps = steps
         });
     }
 
@@ -101,10 +124,19 @@ public class WalkingRouteResponse
     public double DistanceMeters { get; set; }
     public double DurationSeconds { get; set; }
     public List<RoutePoint> Points { get; set; } = new();
+    public List<RouteStep> Steps { get; set; } = new();
 }
 
 public class RoutePoint
 {
     public double Latitude { get; set; }
     public double Longitude { get; set; }
+}
+
+public class RouteStep
+{
+    public string Instruction { get; set; } = string.Empty;
+    public double DistanceMeters { get; set; }
+    public double DurationSeconds { get; set; }
+    public int Type { get; set; }
 }

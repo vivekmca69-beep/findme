@@ -8,11 +8,16 @@
       </div>
       <span class="privacy-pill">Private group</span>
     </div>
-    <p class="hero-copy">Find your parked vehicle or bring a group back together around one live host location.</p>
+    <p class="hero-copy">Live group tracking, walking navigation, compass guidance, smart meeting points and vehicle recovery.</p>
   </header>
 
-  <section class="map-stage">
-    <div id="map" class="map" aria-label="Map showing your location, vehicle and connected people"></div>
+  <section class="map-stage" [class.map-stage--fullscreen]="isMapFullscreen" [class.map-stage--has-session]="isSharing">
+    <div id="map" class="map" aria-label="Map showing your location, vehicle, meeting point and connected people"></div>
+
+    <div class="map-type-toggle glass" role="group" aria-label="Map view">
+      <button type="button" [class.active]="mapMode === 'street'" (click)="setMapMode('street')">Map</button>
+      <button type="button" [class.active]="mapMode === 'satellite'" (click)="setMapMode('satellite')">Satellite</button>
+    </div>
 
     <div class="map-status glass" aria-live="polite">
       <span class="status-dot" [class.live]="isSharing"></span>
@@ -25,6 +30,37 @@
         <strong>{{ activeSessionCode }}</strong>
       </div>
       <div class="connected-pill"><span></span>{{ participantCount }}/{{ maxParticipants }} connected</div>
+    </div>
+
+    <div class="map-control-stack">
+      <button class="map-control glass" type="button" (click)="toggleMapFullscreen()" [attr.aria-label]="isMapFullscreen ? 'Exit full screen map' : 'Open full screen map'">
+        {{ isMapFullscreen ? '✕' : '⛶' }}
+      </button>
+      <button class="map-control glass" type="button" *ngIf="latestOwnLocation" (click)="recenterOnMe()" aria-label="Recenter map on me">⌖</button>
+    </div>
+  </section>
+
+  <section class="navigation-panel" *ngIf="navigationActive">
+    <div class="nav-icon">↗</div>
+    <div class="nav-copy">
+      <span class="micro-label">LIVE NAVIGATION · {{ navigationTargetName }}</span>
+      <strong>{{ navigationInstruction || 'Calculating route…' }}</strong>
+      <small>
+        {{ navigationStepDistanceText ? navigationStepDistanceText + ' to next step · ' : '' }}
+        {{ navigationDistanceText || '—' }} remaining · {{ navigationDurationText || '—' }}
+      </small>
+    </div>
+    <button class="btn btn-soft compact" type="button" (click)="stopNavigation()">Stop</button>
+  </section>
+
+  <section class="compass-panel" *ngIf="compassActive">
+    <div class="compass-dial">
+      <div class="compass-arrow" [style.transform]="'rotate(' + compassRotation + 'deg)'">↑</div>
+    </div>
+    <div>
+      <span class="micro-label">COMPASS TO {{ compassTargetName }}</span>
+      <strong>{{ compassDistanceText || '—' }}</strong>
+      <small>Bearing {{ compassBearing | number:'1.0-0' }}° · Heading {{ compassHeading | number:'1.0-0' }}°</small>
     </div>
   </section>
 
@@ -83,6 +119,33 @@
           <span class="host-badge">⭐ HOST</span>
         </div>
 
+        <div class="advanced-actions">
+          <button class="tool-button" type="button" *ngIf="!isHost" (click)="startNavigation('host')">
+            <span>🧭</span><strong>Navigate to host</strong><small>Live walking guidance</small>
+          </button>
+          <button class="tool-button" type="button" *ngIf="!isHost" (click)="toggleCompass('host')">
+            <span>↑</span><strong>Compass to host</strong><small>Direct bearing</small>
+          </button>
+          <button class="tool-button" type="button" *ngIf="isHost" (click)="createSmartMeetingPoint()">
+            <span>📍</span><strong>Smart meeting point</strong><small>Balanced center of live members</small>
+          </button>
+          <button class="tool-button" type="button" *ngIf="hasMeetingPoint" (click)="startNavigation('meeting')">
+            <span>🚶</span><strong>Navigate to meeting point</strong><small>Shared by the host</small>
+          </button>
+          <button class="tool-button" type="button" *ngIf="hasMeetingPoint" (click)="toggleCompass('meeting')">
+            <span>🧭</span><strong>Compass to meeting point</strong><small>{{ compassActive && navigationTarget === 'meeting' ? 'Stop compass' : 'Direct bearing' }}</small>
+          </button>
+        </div>
+
+        <div class="meeting-card" *ngIf="hasMeetingPoint">
+          <div class="meeting-pin">📍</div>
+          <div>
+            <span class="micro-label">GROUP MEETING POINT</span>
+            <strong>Balanced location is active</strong>
+            <small>Everyone sees the same meeting marker and can navigate to it.</small>
+          </div>
+        </div>
+
         <div class="participant-list">
           <div class="participant-row" *ngFor="let person of participants">
             <div class="participant-avatar" [class.host]="person.isHost">
@@ -90,11 +153,11 @@
             </div>
             <div class="participant-copy">
               <strong>{{ person.deviceId === deviceId ? 'You' : person.displayName }}</strong>
-              <small>{{ person.isHost ? 'Host' : 'Participant' }}</small>
+              <small>{{ person.isHost ? 'Host' : 'Participant' }} · {{ person.lastSeenText }}</small>
             </div>
             <div class="participant-meta">
               <strong *ngIf="person.distanceText">{{ person.distanceText }}</strong>
-              <small>{{ person.latitude != null ? 'Live' : 'Waiting for GPS' }}</small>
+              <span class="participant-status" [ngClass]="person.statusClass"><i></i>{{ person.statusLabel }}</span>
             </div>
           </div>
         </div>
@@ -107,8 +170,8 @@
         </div>
 
         <div class="group-note">
-          <strong>Map behavior</strong>
-          <span>Everyone sees every connected person. Dashed lines connect participants to the host; guests also get a walking route to the host.</span>
+          <strong>Participant status</strong>
+          <span>Live = updated within 15 seconds, Recent = within 60 seconds, Offline = no update for more than a minute.</span>
         </div>
 
         <button class="btn btn-danger" type="button" (click)="stopSharing()">
@@ -120,6 +183,6 @@
 
   <footer class="privacy-note">
     <span>🔒</span>
-    <p><strong>Location stays temporary.</strong> Group sessions are kept in memory and disappear when the API restarts. Use HTTPS for reliable mobile GPS.</p>
+    <p><strong>Private live sessions.</strong> Session state is persisted in Redis; location updates remain temporary and stop when the group ends.</p>
   </footer>
 </div>
