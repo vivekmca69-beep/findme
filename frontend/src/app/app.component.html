@@ -19,6 +19,8 @@
       <button type="button" [class.active]="mapMode === 'satellite'" (click)="setMapMode('satellite')">Satellite</button>
     </div>
 
+    <div class="map-gesture-hint">Pinch to zoom · twist 2 fingers to rotate · drag 2 fingers to tilt</div>
+
     <div class="map-status glass" aria-live="polite">
       <span class="status-dot" [class.live]="isSharing"></span>
       <span>{{ status }}</span>
@@ -73,7 +75,8 @@
       <p>Drop a parking pin now and get a walking route back later.</p>
       <div class="button-row">
         <button class="btn btn-primary" type="button" (click)="saveVehicle()"><span>＋</span> Save location</button>
-        <button class="btn btn-soft" type="button" (click)="findVehicle()"><span>⌖</span> Find vehicle</button>
+        <button class="btn btn-soft" type="button" (click)="findVehicle()"><span>⌖</span> {{ vehicleNavigationActive ? 'Refresh route' : 'Find vehicle' }}</button>
+        <button class="btn btn-danger" type="button" *ngIf="vehicleNavigationActive" (click)="stopVehicleNavigation()"><span>■</span> Stop navigation</button>
       </div>
       <div class="metric-strip" *ngIf="routeMode">
         <div><span>Mode</span><strong>{{ routeMode }}</strong></div>

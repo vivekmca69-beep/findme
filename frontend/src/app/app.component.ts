@@ -9,7 +9,7 @@ import {
   FriendService,
   FriendSessionState
 } from './services/friend.service';
-import * as L from 'leaflet';
+import { L } from './map/maplibre-compat';
 
 interface ParticipantVm extends FriendParticipantState {
   distanceText?: string;
@@ -37,6 +37,12 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   private meetingPointMarker?: L.CircleMarker;
   private routeLine?: L.Polyline;
   private fallbackLine?: L.Polyline;
+  private vehicleRouteCasingLine?: L.Polyline;
+  private vehicleNavigationWatchId?: number;
+  private vehicleTarget?: { latitude: number; longitude: number };
+  private vehicleRouteInFlight = false;
+  private lastVehicleRouteAt = 0;
+  private lastVehicleRouteOrigin?: { latitude: number; longitude: number };
   private hostWalkingRouteLine?: L.Polyline;
   private navigationRouteLine?: L.Polyline;
   private locationWatchId?: number;
@@ -61,6 +67,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   distanceText = '';
   durationText = '';
   routeMode = '';
+  vehicleNavigationActive = false;
 
   displayName = '';
   joinCode = '';
@@ -135,6 +142,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.stopLocationWatch();
+    this.stopVehicleNavigation(false);
     this.stopCompass();
     document.body.classList.remove('findme-map-fullscreen-open');
     if (this.participantStatusTimer !== undefined) window.clearInterval(this.participantStatusTimer);
@@ -156,23 +164,117 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   findVehicle(): void {
     this.status = 'Finding your vehicle...';
     this.clearRouteInfo();
-    Promise.all([
-      this.getCurrentPosition(),
-      new Promise<any>((resolve, reject) => this.parking.get(this.deviceId).subscribe({ next: resolve, error: reject }))
-    ]).then(([current, vehicle]) => {
-      const currentLat = current.coords.latitude;
-      const currentLng = current.coords.longitude;
-      this.showEndpoints(currentLat, currentLng, vehicle.latitude, vehicle.longitude);
-      this.status = 'Calculating walking route...';
-      this.routes.walking(currentLat, currentLng, vehicle.latitude, vehicle.longitude).subscribe({
-        next: route => this.showWalkingRoute(route),
-        error: () => {
-          this.showFallbackLine(currentLat, currentLng, vehicle.latitude, vehicle.longitude);
-          this.status = 'Vehicle found. Direct line shown because walking route is unavailable.';
+
+    // Prevent duplicate GPS watchers/markers when Find vehicle is tapped repeatedly.
+    this.stopVehicleNavigation(false);
+
+    this.parking.get(this.deviceId).subscribe({
+      next: vehicle => {
+        this.vehicleTarget = { latitude: vehicle.latitude, longitude: vehicle.longitude };
+        this.vehicleNavigationActive = true;
+        this.status = 'Starting live walking navigation to your vehicle...';
+
+        this.getCurrentPosition().then(current => {
+          const currentLat = current.coords.latitude;
+          const currentLng = current.coords.longitude;
+          this.latestOwnLocation = { latitude: currentLat, longitude: currentLng };
+          this.showEndpoints(currentLat, currentLng, vehicle.latitude, vehicle.longitude);
+          this.refreshVehicleRoute(currentLat, currentLng, true);
+          this.startVehicleLocationWatch();
+        }).catch(err => {
+          this.vehicleNavigationActive = false;
+          this.status = String(err);
+        });
+      },
+      error: () => this.status = 'Could not find a saved vehicle location. Save it first.'
+    });
+  }
+
+  stopVehicleNavigation(updateStatus = true): void {
+    if (this.vehicleNavigationWatchId !== undefined) {
+      navigator.geolocation.clearWatch(this.vehicleNavigationWatchId);
+      this.vehicleNavigationWatchId = undefined;
+    }
+    this.vehicleNavigationActive = false;
+    this.vehicleRouteInFlight = false;
+    this.lastVehicleRouteAt = 0;
+    this.lastVehicleRouteOrigin = undefined;
+    this.vehicleTarget = undefined;
+    if (updateStatus) this.status = 'Vehicle navigation stopped.';
+  }
+
+  private startVehicleLocationWatch(): void {
+    if (!navigator.geolocation || !this.vehicleTarget) return;
+    if (this.vehicleNavigationWatchId !== undefined) {
+      navigator.geolocation.clearWatch(this.vehicleNavigationWatchId);
+    }
+
+    this.vehicleNavigationWatchId = navigator.geolocation.watchPosition(
+      position => {
+        if (!this.vehicleNavigationActive || !this.vehicleTarget) return;
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+        this.latestOwnLocation = { latitude, longitude };
+
+        // Reuse the same marker instead of creating another dot.
+        this.showOwnLocation(latitude, longitude);
+        this.refreshVehicleRoute(latitude, longitude);
+
+        // Navigation-style follow mode. The route itself is refreshed only when
+        // enough movement has occurred, while the marker can move continuously.
+        this.map?.setView([latitude, longitude], Math.max(this.map?.getZoom() ?? 18, 17), { animate: true });
+      },
+      error => {
+        this.status = error.code === error.PERMISSION_DENIED
+          ? 'Location permission is required for live vehicle navigation.'
+          : 'Could not update your live vehicle-navigation location.';
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 2000 }
+    );
+  }
+
+  private refreshVehicleRoute(latitude: number, longitude: number, force = false): void {
+    if (!this.vehicleTarget || this.vehicleRouteInFlight) return;
+
+    const now = Date.now();
+    const moved = this.lastVehicleRouteOrigin
+      ? this.haversineMeters(
+          this.lastVehicleRouteOrigin.latitude,
+          this.lastVehicleRouteOrigin.longitude,
+          latitude,
+          longitude
+        )
+      : Number.POSITIVE_INFINITY;
+
+    // Re-route after ~8 m of movement and no more frequently than every 5 sec.
+    if (!force && this.lastVehicleRouteAt && (now - this.lastVehicleRouteAt < 5000 || moved < 8)) return;
+
+    this.vehicleRouteInFlight = true;
+    this.lastVehicleRouteAt = now;
+    this.lastVehicleRouteOrigin = { latitude, longitude };
+
+    this.routes.walking(
+      latitude,
+      longitude,
+      this.vehicleTarget.latitude,
+      this.vehicleTarget.longitude
+    ).subscribe({
+      next: route => {
+        this.vehicleRouteInFlight = false;
+        if (!route.points || route.points.length < 2) {
+          this.showFallbackLine(latitude, longitude, this.vehicleTarget!.latitude, this.vehicleTarget!.longitude);
           this.routeMode = 'Direct-line fallback';
+          return;
         }
-      });
-    }).catch(() => this.status = 'Could not find a saved vehicle location. Save it first.');
+        this.showWalkingRoute(route, force);
+      },
+      error: () => {
+        this.vehicleRouteInFlight = false;
+        this.showFallbackLine(latitude, longitude, this.vehicleTarget!.latitude, this.vehicleTarget!.longitude);
+        this.status = 'Walking route is temporarily unavailable. Direct line shown.';
+        this.routeMode = 'Direct-line fallback';
+      }
+    });
   }
 
   createFriendSession(): void {
@@ -794,10 +896,10 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
         zoomControl: false,
         preferCanvas: true
       }).setView([lat, lng], zoom);
-      // Street + satellite basemaps. Neither requires a Google Maps API key.
-      this.streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors',
-        maxZoom: 19
+      // MapLibre GL vector street map (OpenFreeMap) + satellite overlay. No Google Maps API key required.
+      this.streetLayer = L.tileLayer('openfreemap://bright', {
+        attribution: 'OpenFreeMap · OpenStreetMap contributors',
+        maxZoom: 20
       });
 
       this.satelliteLayer = L.tileLayer(
@@ -831,34 +933,90 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private showEndpoints(curLat: number, curLng: number, vehLat: number, vehLng: number): void {
-    this.initMap(curLat, curLng); this.clearVehicleMapObjects();
-    this.currentMarker = L.circleMarker([curLat, curLng], { radius: 10, weight: 4, color: '#ffffff', fillColor: '#2563eb', fillOpacity: 1 }).addTo(this.map!)
-      .bindTooltip('You', { permanent: true, direction: 'top', offset: [0, -8] });
-    this.vehicleMarker = L.circleMarker([vehLat, vehLng], { radius: 10, weight: 4, color: '#ffffff', fillColor: '#ef4444', fillOpacity: 1 }).addTo(this.map!)
+    this.initMap(curLat, curLng);
+    this.clearVehicleMapObjects();
+
+    // Always reuse the application's single current-location marker.
+    this.showOwnLocation(curLat, curLng);
+
+    this.vehicleMarker = L.circleMarker([vehLat, vehLng], {
+      radius: 10, weight: 4, color: '#ffffff', fillColor: '#ef4444', fillOpacity: 1
+    }).addTo(this.map!)
       .bindTooltip('🚗 Vehicle', { permanent: true, direction: 'top', offset: [0, -8] });
-    this.map!.fitBounds(L.latLngBounds([[curLat, curLng], [vehLat, vehLng]]), { padding: [55, 55], maxZoom: 18 });
+
+    this.map!.fitBounds(
+      L.latLngBounds([[curLat, curLng], [vehLat, vehLng]]),
+      { padding: [70, 70], maxZoom: 18 }
+    );
   }
 
-  private showWalkingRoute(route: WalkingRoute): void {
-    if (!this.map || !route.points?.length) { this.status = 'A walking route could not be calculated.'; return; }
-    this.routeLine?.remove(); this.fallbackLine?.remove();
-    this.routeLine = L.polyline(route.points.map(p => L.latLng(p.latitude, p.longitude)), { color: '#2563eb', weight: 7, opacity: 0.92, lineCap: 'round', lineJoin: 'round' }).addTo(this.map);
-    this.map.fitBounds(this.routeLine.getBounds(), { padding: [55, 55] });
+  private showWalkingRoute(route: WalkingRoute, initialFit = true): void {
+    if (!this.map || !route.points?.length) {
+      this.status = 'A walking route could not be calculated.';
+      return;
+    }
+
+    this.routeLine?.remove();
+    this.vehicleRouteCasingLine?.remove();
+    this.fallbackLine?.remove();
+
+    const latLngs = route.points.map(p => L.latLng(p.latitude, p.longitude));
+
+    // White casing + blue route makes the path visible on both street and satellite maps.
+    this.vehicleRouteCasingLine = L.polyline(latLngs, {
+      color: '#ffffff',
+      weight: 11,
+      opacity: 0.95,
+      lineCap: 'round',
+      lineJoin: 'round',
+      interactive: false
+    }).addTo(this.map);
+
+    this.routeLine = L.polyline(latLngs, {
+      color: '#2563eb',
+      weight: 7,
+      opacity: 1,
+      lineCap: 'round',
+      lineJoin: 'round',
+      interactive: false
+    }).addTo(this.map);
+
+    this.vehicleRouteCasingLine.bringToFront();
+    this.routeLine.bringToFront();
+    this.vehicleMarker?.bringToFront();
+    this.currentMarker?.bringToFront();
+
+    if (initialFit) {
+      this.map.fitBounds(this.routeLine.getBounds(), { padding: [70, 70], maxZoom: 18 });
+    }
+
     this.distanceText = this.formatDistance(route.distanceMeters);
     this.durationText = this.formatDuration(route.durationSeconds);
-    this.routeMode = 'Walking route';
-    this.status = 'Walking route to your vehicle is ready.';
+    this.routeMode = 'Live walking route';
+    this.status = 'Live walking route to your vehicle is active.';
   }
 
   private showFallbackLine(curLat: number, curLng: number, vehLat: number, vehLng: number): void {
     if (!this.map) return;
-    this.routeLine?.remove(); this.fallbackLine?.remove();
-    this.fallbackLine = L.polyline([[curLat, curLng], [vehLat, vehLng]], { color: '#64748b', weight: 4, dashArray: '8, 10', opacity: 0.75 }).addTo(this.map);
+    this.routeLine?.remove();
+    this.vehicleRouteCasingLine?.remove();
+    this.fallbackLine?.remove();
+    this.fallbackLine = L.polyline([[curLat, curLng], [vehLat, vehLng]], {
+      color: '#64748b', weight: 4, dashArray: '8, 10', opacity: 0.8
+    }).addTo(this.map);
   }
 
   private clearVehicleMapObjects(): void {
-    this.vehicleMarker?.remove(); this.routeLine?.remove(); this.fallbackLine?.remove();
-    this.vehicleMarker = undefined; this.routeLine = undefined; this.fallbackLine = undefined;
+    // Deliberately do NOT remove currentMarker here. It is shared by group tracking
+    // and vehicle navigation, and reusing it prevents duplicate blue dots.
+    this.vehicleMarker?.remove();
+    this.routeLine?.remove();
+    this.vehicleRouteCasingLine?.remove();
+    this.fallbackLine?.remove();
+    this.vehicleMarker = undefined;
+    this.routeLine = undefined;
+    this.vehicleRouteCasingLine = undefined;
+    this.fallbackLine = undefined;
   }
 
   private clearRouteInfo(): void { this.distanceText = ''; this.durationText = ''; this.routeMode = ''; }
