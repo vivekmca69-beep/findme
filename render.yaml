@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: findme-api
+    runtime: docker
+    plan: free
+    rootDir: backend/FindMe.Api
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: OpenRouteService__ApiKey
+        sync: false
+      - key: FRONTEND_ORIGINS
+        sync: false

@@ -1,0 +1,20 @@
+# Angular
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+
+# .NET
+backend/**/bin/
+backend/**/obj/
+backend/**/.vs/
+
+# Secrets / local configuration
+backend/FindMe.Api/appsettings.Development.json
+.env
+*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

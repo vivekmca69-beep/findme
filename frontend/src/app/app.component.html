@@ -1,0 +1,125 @@
+<div class="app-shell">
+  <header class="hero">
+    <div class="brand-row">
+      <div class="brand-mark" aria-hidden="true">F</div>
+      <div>
+        <div class="eyebrow">LIVE LOCATION COMPANION</div>
+        <h1>FindMe</h1>
+      </div>
+      <span class="privacy-pill">Private group</span>
+    </div>
+    <p class="hero-copy">Find your parked vehicle or bring a group back together around one live host location.</p>
+  </header>
+
+  <section class="map-stage">
+    <div id="map" class="map" aria-label="Map showing your location, vehicle and connected people"></div>
+
+    <div class="map-status glass" aria-live="polite">
+      <span class="status-dot" [class.live]="isSharing"></span>
+      <span>{{ status }}</span>
+    </div>
+
+    <div class="session-float glass" *ngIf="isSharing">
+      <div>
+        <span class="micro-label">Group code</span>
+        <strong>{{ activeSessionCode }}</strong>
+      </div>
+      <div class="connected-pill"><span></span>{{ participantCount }}/{{ maxParticipants }} connected</div>
+    </div>
+  </section>
+
+  <section class="quick-grid">
+    <article class="feature-card vehicle-card">
+      <div class="feature-top">
+        <div class="icon-orb">🚗</div>
+        <div><span class="micro-label">Parking</span><h2>My Vehicle</h2></div>
+      </div>
+      <p>Drop a parking pin now and get a walking route back later.</p>
+      <div class="button-row">
+        <button class="btn btn-primary" type="button" (click)="saveVehicle()"><span>＋</span> Save location</button>
+        <button class="btn btn-soft" type="button" (click)="findVehicle()"><span>⌖</span> Find vehicle</button>
+      </div>
+      <div class="metric-strip" *ngIf="routeMode">
+        <div><span>Mode</span><strong>{{ routeMode }}</strong></div>
+        <div *ngIf="distanceText"><span>Distance</span><strong>{{ distanceText }}</strong></div>
+        <div *ngIf="durationText"><span>Walk</span><strong>{{ durationText }}</strong></div>
+      </div>
+    </article>
+
+    <article class="feature-card friend-card">
+      <div class="feature-top">
+        <div class="icon-orb">👥</div>
+        <div><span class="micro-label">Group meet-up</span><h2>Find My Group</h2></div>
+        <span class="live-badge" *ngIf="isSharing"><i></i> LIVE</span>
+      </div>
+
+      <ng-container *ngIf="!isSharing; else activeSession">
+        <label class="field-label" for="displayName">Your name</label>
+        <input id="displayName" class="text-input" [(ngModel)]="displayName" maxlength="40" placeholder="e.g. Rahul">
+
+        <div class="friend-actions">
+          <button class="choice-card" type="button" (click)="createFriendSession()">
+            <span class="choice-icon">＋</span>
+            <span><strong>Create group</strong><small>You become the host. Up to {{ maxParticipants }} people can join.</small></span>
+            <span class="arrow">→</span>
+          </button>
+
+          <div class="join-box">
+            <div><strong>Join a group</strong><small>Enter the host's 6-digit code</small></div>
+            <div class="join-row">
+              <input id="joinCode" class="text-input code-input" [(ngModel)]="joinCode" inputmode="numeric" maxlength="6" placeholder="000000">
+              <button class="btn btn-primary compact" type="button" (click)="joinFriendSession()">Join</button>
+            </div>
+          </div>
+        </div>
+      </ng-container>
+
+      <ng-template #activeSession>
+        <div class="group-head">
+          <div>
+            <span class="micro-label">{{ isHost ? 'You are hosting' : 'Connected to host' }}</span>
+            <h3>{{ hostParticipant?.displayName || (isHost ? 'You' : 'Waiting for host GPS…') }}</h3>
+          </div>
+          <span class="host-badge">⭐ HOST</span>
+        </div>
+
+        <div class="participant-list">
+          <div class="participant-row" *ngFor="let person of participants">
+            <div class="participant-avatar" [class.host]="person.isHost">
+              {{ person.deviceId === deviceId ? 'Y' : person.displayName.charAt(0).toUpperCase() }}
+            </div>
+            <div class="participant-copy">
+              <strong>{{ person.deviceId === deviceId ? 'You' : person.displayName }}</strong>
+              <small>{{ person.isHost ? 'Host' : 'Participant' }}</small>
+            </div>
+            <div class="participant-meta">
+              <strong *ngIf="person.distanceText">{{ person.distanceText }}</strong>
+              <small>{{ person.latitude != null ? 'Live' : 'Waiting for GPS' }}</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="session-metrics" *ngIf="!isHost">
+          <div><span>Route target</span><strong>{{ hostParticipant?.displayName || 'Host' }}</strong></div>
+          <div><span>Walking distance</span><strong>{{ hostWalkingDistanceText || '—' }}</strong></div>
+          <div><span>Estimated walk</span><strong>{{ hostWalkingDurationText || '—' }}</strong></div>
+          <div><span>Route</span><strong>{{ hostRouteMode || 'Waiting for GPS' }}</strong></div>
+        </div>
+
+        <div class="group-note">
+          <strong>Map behavior</strong>
+          <span>Everyone sees every connected person. Dashed lines connect participants to the host; guests also get a walking route to the host.</span>
+        </div>
+
+        <button class="btn btn-danger" type="button" (click)="stopSharing()">
+          {{ isHost ? 'End group session' : 'Leave group' }}
+        </button>
+      </ng-template>
+    </article>
+  </section>
+
+  <footer class="privacy-note">
+    <span>🔒</span>
+    <p><strong>Location stays temporary.</strong> Group sessions are kept in memory and disappear when the API restarts. Use HTTPS for reliable mobile GPS.</p>
+  </footer>
+</div>
