@@ -1,17 +1,17 @@
-using FindMe.Api;
 using Microsoft.AspNetCore.SignalR;
 
 namespace FindMe.Api.Hubs;
 
 public class FriendHub : Hub
 {
-    private readonly FriendSessionStore _store;
+    private readonly IFriendSessionStore _store;
 
-    public FriendHub(FriendSessionStore store) => _store = store;
+    public FriendHub(IFriendSessionStore store) => _store = store;
 
     public async Task ConnectToSession(string sessionCode, string deviceId)
     {
-        if (!_store.TryGet(sessionCode, out var session) || session is null)
+        var session = await _store.GetAsync(sessionCode);
+        if (session is null)
             throw new HubException("Session not found.");
 
         if (!session.Participants.ContainsKey(deviceId))
@@ -27,11 +27,12 @@ public class FriendHub : Hub
         if (latitude is < -90 or > 90 || longitude is < -180 or > 180)
             throw new HubException("Invalid coordinates.");
 
-        if (!_store.TryGet(sessionCode, out var session) || session is null ||
-            !session.Participants.TryGetValue(deviceId, out var participant))
+        var session = await _store.GetAsync(sessionCode);
+        if (session is null || !session.Participants.TryGetValue(deviceId, out var participant))
             throw new HubException("Session or participant not found.");
 
-        _store.UpdateLocation(sessionCode, deviceId, latitude, longitude);
+        if (!await _store.UpdateLocationAsync(sessionCode, deviceId, latitude, longitude))
+            throw new HubException("Could not update participant location.");
 
         await Clients.Group(sessionCode).SendAsync("LocationUpdated", new
         {
@@ -46,18 +47,17 @@ public class FriendHub : Hub
 
     public async Task LeaveSession(string sessionCode, string deviceId)
     {
-        var wasHost = _store.TryGet(sessionCode, out var before) && before is not null && before.HostDeviceId == deviceId;
-        _store.Leave(sessionCode, deviceId);
+        var result = await _store.LeaveAsync(sessionCode, deviceId);
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, sessionCode);
 
-        if (wasHost)
+        if (result.WasHost)
         {
             await Clients.Group(sessionCode).SendAsync("SessionClosed", new { sessionCode });
             return;
         }
 
-        if (_store.TryGet(sessionCode, out var session) && session is not null)
-            await Clients.Group(sessionCode).SendAsync("ParticipantChanged", BuildSessionState(session));
+        if (result.RemainingSession is not null)
+            await Clients.Group(sessionCode).SendAsync("ParticipantChanged", BuildSessionState(result.RemainingSession));
     }
 
     private static object BuildSessionState(FriendSession session) => new
@@ -65,7 +65,7 @@ public class FriendHub : Hub
         sessionCode = session.Code,
         hostDeviceId = session.HostDeviceId,
         participantCount = session.Participants.Count,
-        maxParticipants = FriendSessionStore.MaxParticipants,
+        maxParticipants = InMemoryFriendSessionStore.MaxParticipants,
         participants = session.Participants.Values
             .OrderBy(p => p.JoinedAtUtc)
             .Select(p => new

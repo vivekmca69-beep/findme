@@ -11,3 +11,5 @@ services:
         sync: false
       - key: FRONTEND_ORIGINS
         sync: false
+      - key: REDIS_URL
+        sync: false

@@ -1,4 +1,3 @@
-using FindMe.Api;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FindMe.Api.Controllers;
@@ -7,47 +6,68 @@ namespace FindMe.Api.Controllers;
 [Route("api/[controller]")]
 public class FriendController : ControllerBase
 {
-    private readonly FriendSessionStore _store;
+    private readonly IFriendSessionStore _store;
 
-    public FriendController(FriendSessionStore store)
-    {
-        _store = store;
-    }
+    public FriendController(IFriendSessionStore store) => _store = store;
 
     [HttpPost("create")]
-    public IActionResult Create([FromBody] FriendSessionRequest request)
+    public async Task<IActionResult> Create([FromBody] FriendSessionRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.DeviceId))
             return BadRequest(new { message = "DeviceId is required." });
 
-        var session = _store.Create(request.DeviceId, request.DisplayName);
-        return Ok(new { sessionCode = session.Code, hostDeviceId = session.HostDeviceId, maxParticipants = FriendSessionStore.MaxParticipants });
+        var session = await _store.CreateAsync(request.DeviceId, request.DisplayName);
+        return Ok(SessionIdentity(session));
     }
 
     [HttpPost("join")]
-    public IActionResult Join([FromBody] JoinFriendSessionRequest request)
+    public async Task<IActionResult> Join([FromBody] JoinFriendSessionRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.DeviceId) || string.IsNullOrWhiteSpace(request.SessionCode))
             return BadRequest(new { message = "DeviceId and session code are required." });
 
         var code = request.SessionCode.Trim();
-        if (!_store.TryJoin(code, request.DeviceId, request.DisplayName, out var session, out var error))
-            return BadRequest(new { message = error });
+        var result = await _store.TryJoinAsync(code, request.DeviceId, request.DisplayName);
+        if (!result.Success || result.Session is null)
+            return BadRequest(new { message = result.Error });
 
-        return Ok(new { sessionCode = code, hostDeviceId = session!.HostDeviceId, maxParticipants = FriendSessionStore.MaxParticipants });
+        return Ok(SessionIdentity(result.Session));
+    }
+
+    [HttpPost("restore")]
+    public async Task<IActionResult> Restore([FromBody] RestoreFriendSessionRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.DeviceId) || string.IsNullOrWhiteSpace(request.SessionCode))
+            return BadRequest(new { message = "DeviceId and session code are required." });
+
+        var session = await _store.GetAsync(request.SessionCode.Trim());
+        if (session is null)
+            return NotFound(new { message = "Session not found." });
+
+        if (!session.Participants.TryGetValue(request.DeviceId, out var participant))
+            return NotFound(new { message = "This device is no longer part of the session." });
+
+        return Ok(new
+        {
+            sessionCode = session.Code,
+            hostDeviceId = session.HostDeviceId,
+            maxParticipants = InMemoryFriendSessionStore.MaxParticipants,
+            displayName = participant.DisplayName
+        });
     }
 
     [HttpGet("{sessionCode}")]
-    public IActionResult Get(string sessionCode)
+    public async Task<IActionResult> Get(string sessionCode)
     {
-        if (!_store.TryGet(sessionCode, out var session) || session is null)
+        var session = await _store.GetAsync(sessionCode);
+        if (session is null)
             return NotFound(new { message = "Session not found." });
 
         return Ok(new
         {
             sessionCode = session.Code,
             hostDeviceId = session.HostDeviceId,
-            maxParticipants = FriendSessionStore.MaxParticipants,
+            maxParticipants = InMemoryFriendSessionStore.MaxParticipants,
             participants = session.Participants.Values.Select(p => new
             {
                 p.DeviceId,
@@ -58,6 +78,13 @@ public class FriendController : ControllerBase
             })
         });
     }
+
+    private static object SessionIdentity(FriendSession session) => new
+    {
+        sessionCode = session.Code,
+        hostDeviceId = session.HostDeviceId,
+        maxParticipants = InMemoryFriendSessionStore.MaxParticipants
+    };
 }
 
 public class FriendSessionRequest
@@ -69,4 +96,10 @@ public class FriendSessionRequest
 public class JoinFriendSessionRequest : FriendSessionRequest
 {
     public string SessionCode { get; set; } = string.Empty;
+}
+
+public class RestoreFriendSessionRequest
+{
+    public string SessionCode { get; set; } = string.Empty;
+    public string DeviceId { get; set; } = string.Empty;
 }

@@ -5,6 +5,7 @@
 - Backend: Render Free Web Service (Docker)
 - Routing: OpenRouteService
 - Realtime: ASP.NET Core SignalR / WebSockets
+- Session persistence: Redis (Upstash recommended)
 
 ## 1. Push this folder to GitHub
 Do not commit a real OpenRouteService API key. `appsettings.Development.json` is ignored.
@@ -20,6 +21,7 @@ Create a new Blueprint from the GitHub repository using `render.yaml`, or create
 Set environment variables:
 - `OpenRouteService__ApiKey` = your OpenRouteService key
 - `FRONTEND_ORIGINS` = temporary value `http://localhost:4200` until Cloudflare is deployed
+- `REDIS_URL` = your Upstash Redis TLS connection URL (normally starts with `rediss://`)
 
 After deployment note the URL, for example:
 `https://findme-api.onrender.com`
@@ -78,5 +80,7 @@ For LAN testing, either temporarily set the generated environment file to your L
 API_BASE_URL=http://192.168.1.5:5000 npm run build
 ```
 
-## Important MVP limitation
-Friend sessions and parked vehicle state are currently stored in backend memory. If the Render free instance restarts or spins down, that state is lost. This is acceptable for MVP testing. Add Redis/database persistence before relying on long-lived sessions.
+## Persistence behavior
+Friend/group sessions are stored in Redis when `REDIS_URL` is configured, so they survive Render restarts and browser refreshes. The frontend stores the active session code/name locally and automatically restores the room after reload.
+
+Parked vehicle state is still stored in backend memory in this version and can be moved to Redis/database later.

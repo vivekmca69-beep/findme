@@ -1,4 +1,4 @@
-import { Component, OnDestroy } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ParkingService } from './services/parking.service';
@@ -22,7 +22,7 @@ interface ParticipantVm extends FriendParticipantState {
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.css']
 })
-export class AppComponent implements OnDestroy {
+export class AppComponent implements OnInit, OnDestroy {
   private map?: L.Map;
   private currentMarker?: L.CircleMarker;
   private vehicleMarker?: L.CircleMarker;
@@ -38,6 +38,7 @@ export class AppComponent implements OnDestroy {
   private lastHostRouteAt = 0;
   private lastHostOrigin?: { latitude: number; longitude: number };
   private lastHostTarget?: { latitude: number; longitude: number };
+  private readonly activeSessionStorageKey = 'findme-active-session';
 
   status = 'Ready';
   deviceId = this.getDeviceId();
@@ -73,6 +74,10 @@ export class AppComponent implements OnDestroy {
 
   get otherParticipants(): ParticipantVm[] {
     return this.participants.filter(p => p.deviceId !== this.deviceId);
+  }
+
+  ngOnInit(): void {
+    this.restoreSavedSession();
   }
 
   ngOnDestroy(): void {
@@ -123,6 +128,8 @@ export class AppComponent implements OnDestroy {
         this.joinCode = result.sessionCode;
         this.hostDeviceId = result.hostDeviceId;
         this.maxParticipants = result.maxParticipants;
+        this.displayName = name;
+        this.saveActiveSession(result.sessionCode, name);
         try {
           await this.startFriendSharing();
           this.status = `Session ${result.sessionCode} created. You are the host.`;
@@ -147,6 +154,8 @@ export class AppComponent implements OnDestroy {
         this.activeSessionCode = result.sessionCode;
         this.hostDeviceId = result.hostDeviceId;
         this.maxParticipants = result.maxParticipants;
+        this.displayName = name;
+        this.saveActiveSession(result.sessionCode, name);
         try {
           await this.startFriendSharing();
           this.status = `Joined session ${result.sessionCode}.`;
@@ -161,6 +170,7 @@ export class AppComponent implements OnDestroy {
   async stopSharing(): Promise<void> {
     this.stopLocationWatch();
     const code = this.activeSessionCode;
+    this.clearActiveSession();
     if (code) {
       try { await this.friends.leave(code, this.deviceId); }
       catch { await this.friends.disconnect(); }
@@ -178,6 +188,7 @@ export class AppComponent implements OnDestroy {
       update => this.handleParticipantLocation(update),
       state => this.applySessionState(state),
       () => {
+        this.clearActiveSession();
         this.stopLocationWatch();
         this.resetGroupState();
         this.status = 'The host ended this session.';
@@ -384,6 +395,56 @@ export class AppComponent implements OnDestroy {
     this.lastHostOrigin = undefined;
     this.lastHostTarget = undefined;
     if (wasHost) this.status = 'Session closed.';
+  }
+
+  private restoreSavedSession(): void {
+    const saved = this.readActiveSession();
+    if (!saved) return;
+
+    this.status = 'Restoring your active session...';
+    this.friends.restore(saved.sessionCode, this.deviceId).subscribe({
+      next: async result => {
+        this.activeSessionCode = result.sessionCode;
+        this.joinCode = result.sessionCode;
+        this.hostDeviceId = result.hostDeviceId;
+        this.maxParticipants = result.maxParticipants;
+        this.displayName = result.displayName || saved.displayName || '';
+        this.saveActiveSession(result.sessionCode, this.displayName);
+        try {
+          await this.startFriendSharing();
+          this.status = this.isHost
+            ? `Session ${result.sessionCode} restored. You are the host.`
+            : `Session ${result.sessionCode} restored.`;
+        } catch (error) {
+          this.status = this.errorMessage(error, 'Could not restore live sharing.');
+        }
+      },
+      error: () => {
+        this.clearActiveSession();
+        this.resetGroupState();
+        this.status = 'Your previous session is no longer active.';
+      }
+    });
+  }
+
+  private saveActiveSession(sessionCode: string, displayName: string): void {
+    localStorage.setItem(this.activeSessionStorageKey, JSON.stringify({ sessionCode, displayName }));
+  }
+
+  private readActiveSession(): { sessionCode: string; displayName: string } | null {
+    const raw = localStorage.getItem(this.activeSessionStorageKey);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed?.sessionCode !== 'string' || !/^\d{6}$/.test(parsed.sessionCode)) return null;
+      return { sessionCode: parsed.sessionCode, displayName: typeof parsed.displayName === 'string' ? parsed.displayName : '' };
+    } catch {
+      return null;
+    }
+  }
+
+  private clearActiveSession(): void {
+    localStorage.removeItem(this.activeSessionStorageKey);
   }
 
   private getCurrentPosition(): Promise<GeolocationPosition> {
