@@ -494,3 +494,62 @@ body.findme-map-fullscreen-open { overflow:hidden; }
   .route-mode-toggle button span:last-child { font-size:9px; }
   .map-top-stack .connected-pill { font-size:9px; }
 }
+
+/* V11 Google Maps migration */
+:host ::ng-deep .gm-style .findme-google-marker-label {
+  transform: translateY(-28px);
+  background: rgba(255,255,255,.96);
+  border-radius: 10px;
+  padding: 5px 8px;
+  box-shadow: 0 5px 14px rgba(15,23,42,.16);
+  white-space: nowrap;
+}
+:host ::ng-deep .gm-style-mtc,
+:host ::ng-deep .gm-fullscreen-control { display:none!important; }
+.google-route-warning {
+  position:absolute;
+  left:14px;
+  right:86px;
+  bottom:58px;
+  z-index:655;
+  max-width:520px;
+  padding:7px 10px;
+  border-radius:12px;
+  background:rgba(255,255,255,.94);
+  color:#7a5b08;
+  font-size:9px;
+  line-height:1.35;
+  font-weight:700;
+  box-shadow:0 6px 18px rgba(15,23,42,.10);
+  backdrop-filter:blur(10px);
+  pointer-events:none;
+}
+.google-powered {
+  display:block;
+  margin-top:4px;
+  color:#667085;
+  font-size:10px;
+}
+@media (max-width:600px) {
+  .google-route-warning {
+    left:10px;
+    right:76px;
+    bottom:56px;
+    font-size:8px;
+  }
+  :host ::ng-deep .gm-bundled-control-on-bottom { bottom:64px!important; right:10px!important; }
+}
+
+/* Keep four Google travel modes usable on narrow phones without colliding. */
+.route-mode-toggle {
+  max-width:min(100%, 360px);
+  overflow-x:auto!important;
+  overscroll-behavior-x:contain;
+  scrollbar-width:none;
+}
+.route-mode-toggle::-webkit-scrollbar { display:none; }
+.route-mode-toggle button { flex:0 0 auto; }
+@media (max-width:420px) {
+  .route-mode-toggle { max-width:calc(100vw - 96px); }
+  .route-mode-toggle button { min-width:56px; }
+}

@@ -10,7 +10,7 @@ import {
   FriendService,
   FriendSessionState
 } from './services/friend.service';
-import { L } from './map/maplibre-compat';
+import { L } from './map/google-maps-compat';
 
 interface ParticipantVm extends FriendParticipantState {
   distanceText?: string;
@@ -1217,27 +1217,9 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
         preferCanvas: true
       }).setView([lat, lng], zoom);
       // MapLibre GL vector street map (OpenFreeMap) + satellite overlay. No Google Maps API key required.
-      this.streetLayer = L.tileLayer('openfreemap://bright', {
-        attribution: 'OpenFreeMap · OpenStreetMap contributors',
-        maxZoom: 20
-      });
-
-      this.satelliteLayer = L.tileLayer(
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        {
-          attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
-          maxZoom: 19
-        }
-      );
-
-      // Overlay place/road labels on top of satellite imagery for a more familiar navigation view.
-      this.satelliteLabelsLayer = L.tileLayer(
-        'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-        {
-          attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
-          maxZoom: 19
-        }
-      );
+      this.streetLayer = L.tileLayer('google://roadmap');
+      this.satelliteLayer = L.tileLayer('google://hybrid');
+      this.satelliteLabelsLayer = L.tileLayer('google://labels');
 
       this.streetLayer.addTo(this.map);
       L.control.zoom({ position: 'bottomright' }).addTo(this.map);
@@ -1342,6 +1324,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   private routeModeLabel(mode: RoutePreferenceMode): string {
     switch (mode) {
       case 'car': return 'Car';
+      case 'two_wheeler': return 'Two-wheeler';
       case 'bicycle': return 'Bicycle';
       default: return 'Walking';
     }

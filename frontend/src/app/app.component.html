@@ -24,6 +24,9 @@
         <button type="button" [class.active]="routePreferenceMode === 'car'" (click)="setRoutePreferenceMode('car')" [disabled]="isRouteProcessing" aria-label="Car route">
           <span class="travel-icon">🚗</span><span>Car</span>
         </button>
+        <button type="button" [class.active]="routePreferenceMode === 'two_wheeler'" (click)="setRoutePreferenceMode('two_wheeler')" [disabled]="isRouteProcessing" aria-label="Motorcycle or scooter route">
+          <span class="travel-icon">🏍️</span><span>2-Wheeler</span>
+        </button>
         <button type="button" [class.active]="routePreferenceMode === 'bicycle'" (click)="setRoutePreferenceMode('bicycle')" [disabled]="isRouteProcessing" aria-label="Bicycle route">
           <span class="travel-icon">🚲</span><span>Bike</span>
         </button>
@@ -39,6 +42,11 @@
         </div>
         <div class="connected-pill"><span></span>{{ participantCount }}/{{ maxParticipants }}</div>
       </div>
+    </div>
+
+
+    <div class="google-route-warning" *ngIf="routePreferenceMode !== 'car'">
+      Google notes that Walk, Bicycle and Two-wheeler routes are beta and can occasionally miss clear paths or road restrictions.
     </div>
 
     <div class="map-status glass" aria-live="polite" [attr.aria-busy]="isAnyActionBusy">
@@ -86,7 +94,7 @@
         <div class="icon-orb">🚗</div>
         <div><span class="micro-label">Parking</span><h2>My Vehicle</h2></div>
       </div>
-      <p>Save your parking point and choose Car, Bike or Walk when you navigate back.</p>
+      <p>Save your parking point and choose Car, Two-wheeler, Bike or Walk when you navigate back.</p>
       <div class="button-row">
         <button class="btn btn-primary" type="button" (click)="saveVehicle()" [disabled]="isVehicleActionBusy" [attr.aria-busy]="isBusy('saveVehicle')">
           <span class="btn-spinner" *ngIf="isBusy('saveVehicle')" aria-hidden="true"></span>
@@ -158,7 +166,7 @@
         <div class="advanced-actions">
           <button class="tool-button" type="button" *ngIf="!isHost" (click)="startNavigation('host')" [disabled]="isBusy('navigateHost')" [attr.aria-busy]="isBusy('navigateHost')">
             <span><span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('navigateHost')" aria-hidden="true"></span><ng-container *ngIf="!isBusy('navigateHost')">🧭</ng-container></span>
-            <strong>{{ isBusy('navigateHost') ? 'Calculating route…' : 'Navigate to host' }}</strong><small>Live walking guidance</small>
+            <strong>{{ isBusy('navigateHost') ? 'Calculating route…' : 'Navigate to host' }}</strong><small>Live route guidance</small>
           </button>
           <button class="tool-button" type="button" *ngIf="!isHost" (click)="toggleCompass('host')" [disabled]="isBusy('compassHost')" [attr.aria-busy]="isBusy('compassHost')">
             <span><span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('compassHost')" aria-hidden="true"></span><ng-container *ngIf="!isBusy('compassHost')">↑</ng-container></span>
@@ -226,5 +234,6 @@
   <footer class="privacy-note">
     <span>🔒</span>
     <p><strong>Private live sessions.</strong> Session state is persisted in Redis; location updates remain temporary and stop when the group ends.</p>
+      <small class="google-powered">Powered by Google, ©2026 Google</small>
   </footer>
 </div>

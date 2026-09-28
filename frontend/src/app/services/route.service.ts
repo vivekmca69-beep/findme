@@ -11,14 +11,16 @@ export interface RouteStep {
   instruction: string;
   distanceMeters: number;
   durationSeconds: number;
-  type: number;
+  type?: number;
+  maneuver?: string;
 }
 
-export type RoutePreferenceMode = 'car' | 'bicycle' | 'walking';
+export type RoutePreferenceMode = 'car' | 'two_wheeler' | 'bicycle' | 'walking';
 
 export interface WalkingRoute {
   mode?: RoutePreferenceMode;
   profile?: string;
+  provider?: string;
   distanceMeters: number;
   durationSeconds: number;
   points: RoutePoint[];

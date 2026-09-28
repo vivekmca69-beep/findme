@@ -84,3 +84,14 @@ API_BASE_URL=http://192.168.1.5:5000 npm run build
 Friend/group sessions are stored in Redis when `REDIS_URL` is configured, so they survive Render restarts and browser refreshes. The frontend stores the active session code/name locally and automatically restores the room after reload.
 
 Parked vehicle state is still stored in backend memory in this version and can be moved to Redis/database later.
+
+## V11 Google Maps variables
+
+Cloudflare Pages build environment:
+- `GOOGLE_MAPS_API_KEY` = browser key restricted to Maps JavaScript API and allowed website referrers
+- `API_BASE_URL` = Render backend URL
+
+Render backend environment:
+- `GOOGLE_ROUTES_API_KEY` = server key restricted to Routes API
+
+The previous `OpenRouteService__ApiKey` variable is no longer used and can be removed after V11 is verified.
