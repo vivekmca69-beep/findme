@@ -1,9 +1,10 @@
 import { AfterViewInit, Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ParkingService } from './services/parking.service';
+import { ParkingService, SavedParkingLocation } from './services/parking.service';
 import { RouteService, WalkingRoute } from './services/route.service';
 import {
+  FriendGroupRoute,
   FriendLocationUpdate,
   FriendParticipantState,
   FriendService,
@@ -48,18 +49,20 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   private locationWatchId?: number;
   latestOwnLocation?: { latitude: number; longitude: number };
   private participantMarkers = new Map<string, L.CircleMarker>();
+  // Temporary straight connectors are shown only while a road route is being calculated.
   private participantLines = new Map<string, L.Polyline>();
   private participantState = new Map<string, ParticipantVm>();
-  private hostRouteInFlight = false;
-  private lastHostRouteAt = 0;
-  private lastHostOrigin?: { latitude: number; longitude: number };
-  private lastHostTarget?: { latitude: number; longitude: number };
+  private groupRouteState = new Map<string, FriendGroupRoute>();
+  private groupRouteLines = new Map<string, L.Polyline>();
+  private groupRouteCasings = new Map<string, L.Polyline>();
+  private groupRouteInFlight = new Set<string>();
   private navigationRouteInFlight = false;
   private lastNavigationRouteAt = 0;
   private lastNavigationOrigin?: { latitude: number; longitude: number };
   private lastNavigationTarget?: { latitude: number; longitude: number };
   private participantStatusTimer?: number;
   private readonly activeSessionStorageKey = 'findme-active-session';
+  private readonly savedVehicleStorageKey = 'findme-saved-vehicle';
   private readonly orientationHandler = (event: DeviceOrientationEvent) => this.handleOrientation(event);
 
   status = 'Map ready';
@@ -154,9 +157,22 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.clearRouteInfo();
     this.getCurrentPosition().then(pos => {
       const payload = { deviceId: this.deviceId, latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+
+      // Keep a browser-local copy immediately. Redis is the server-side source of truth,
+      // but this backup means a parked vehicle is still recoverable on the same browser
+      // even if the backend is temporarily asleep/unavailable.
+      this.saveVehicleLocally({ ...payload, savedAtUtc: new Date().toISOString() });
+
       this.parking.save(payload).subscribe({
-        next: () => { this.status = 'Vehicle location saved.'; this.showSavedVehicle(payload.latitude, payload.longitude); },
-        error: () => this.status = 'Could not save vehicle location.'
+        next: saved => {
+          this.saveVehicleLocally(saved);
+          this.status = 'Vehicle location saved until you replace or clear it.';
+          this.showSavedVehicle(payload.latitude, payload.longitude);
+        },
+        error: () => {
+          this.status = 'Vehicle saved on this phone. Server sync is temporarily unavailable.';
+          this.showSavedVehicle(payload.latitude, payload.longitude);
+        }
       });
     }).catch(err => this.status = String(err));
   }
@@ -170,23 +186,47 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
 
     this.parking.get(this.deviceId).subscribe({
       next: vehicle => {
-        this.vehicleTarget = { latitude: vehicle.latitude, longitude: vehicle.longitude };
-        this.vehicleNavigationActive = true;
-        this.status = 'Starting live walking navigation to your vehicle...';
-
-        this.getCurrentPosition().then(current => {
-          const currentLat = current.coords.latitude;
-          const currentLng = current.coords.longitude;
-          this.latestOwnLocation = { latitude: currentLat, longitude: currentLng };
-          this.showEndpoints(currentLat, currentLng, vehicle.latitude, vehicle.longitude);
-          this.refreshVehicleRoute(currentLat, currentLng, true);
-          this.startVehicleLocationWatch();
-        }).catch(err => {
-          this.vehicleNavigationActive = false;
-          this.status = String(err);
-        });
+        this.saveVehicleLocally(vehicle);
+        this.beginVehicleNavigation(vehicle);
       },
-      error: () => this.status = 'Could not find a saved vehicle location. Save it first.'
+      error: () => {
+        const localVehicle = this.readVehicleLocally();
+        if (localVehicle) {
+          this.status = 'Using the parking location saved on this phone.';
+          this.beginVehicleNavigation(localVehicle);
+        } else {
+          this.status = 'No saved vehicle location found. Save your vehicle first.';
+        }
+      }
+    });
+  }
+
+  clearSavedVehicle(): void {
+    this.stopVehicleNavigation(false);
+    localStorage.removeItem(this.savedVehicleStorageKey);
+    this.clearVehicleMapObjects();
+    this.parking.clear(this.deviceId).subscribe({
+      next: () => this.status = 'Saved vehicle location cleared.',
+      error: () => this.status = 'Vehicle cleared on this phone; server cleanup will retry when you save again.'
+    });
+  }
+
+  private beginVehicleNavigation(vehicle: SavedParkingLocation): void {
+    this.vehicleTarget = { latitude: vehicle.latitude, longitude: vehicle.longitude };
+    this.vehicleNavigationActive = true;
+    this.routeMode = 'Calculating road route…';
+    this.status = 'Starting live walking navigation to your vehicle...';
+
+    this.getCurrentPosition().then(current => {
+      const currentLat = current.coords.latitude;
+      const currentLng = current.coords.longitude;
+      this.latestOwnLocation = { latitude: currentLat, longitude: currentLng };
+      this.showEndpoints(currentLat, currentLng, vehicle.latitude, vehicle.longitude);
+      this.refreshVehicleRoute(currentLat, currentLng, true);
+      this.startVehicleLocationWatch();
+    }).catch(err => {
+      this.vehicleNavigationActive = false;
+      this.status = String(err);
     });
   }
 
@@ -517,7 +557,8 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
         this.stopCompass();
         this.resetGroupState();
         this.status = 'The host ended this session.';
-      }
+      },
+      route => this.handleGroupRoute(route)
     );
 
     const firstPosition = await this.getCurrentPosition();
@@ -557,6 +598,22 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       this.participantState.set(participant.deviceId, { ...existing, ...participant });
       if (participant.latitude != null && participant.longitude != null) this.renderParticipant(participant.deviceId);
     }
+
+    const incomingRouteTargets = new Set((state.groupRoutes ?? []).map(route => route.targetDeviceId));
+    for (const targetId of [...this.groupRouteState.keys()]) {
+      if (!incomingRouteTargets.has(targetId) || !incomingIds.has(targetId)) {
+        this.groupRouteState.delete(targetId);
+        this.groupRouteLines.get(targetId)?.remove();
+        this.groupRouteCasings.get(targetId)?.remove();
+        this.groupRouteLines.delete(targetId);
+        this.groupRouteCasings.delete(targetId);
+      }
+    }
+    for (const route of state.groupRoutes ?? []) {
+      this.groupRouteState.set(route.targetDeviceId, route);
+      this.renderGroupRoute(route);
+    }
+
     this.refreshParticipantList();
     this.redrawHostConnectors();
     this.refreshOwnWalkingRouteToHostIfNeeded();
@@ -661,19 +718,150 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     const host = this.participantState.get(this.hostDeviceId);
     if (!host || host.latitude == null || host.longitude == null) return;
 
+    // Every participant gets a visible connection to the host on every device.
+    // A dashed direct connector is only temporary while the shared road route is
+    // being calculated by the host. Once the road route arrives, the dashed line
+    // is removed for everyone.
     const validIds = new Set<string>();
     for (const p of this.participantState.values()) {
       if (p.deviceId === this.hostDeviceId || p.latitude == null || p.longitude == null) continue;
       validIds.add(p.deviceId);
+      const roadRoute = this.groupRouteState.get(p.deviceId);
+      if (roadRoute?.points?.length) {
+        this.participantLines.get(p.deviceId)?.remove();
+        this.participantLines.delete(p.deviceId);
+        this.renderGroupRoute(roadRoute);
+        continue;
+      }
+
       let line = this.participantLines.get(p.deviceId);
       const points: L.LatLngExpression[] = [[host.latitude, host.longitude], [p.latitude, p.longitude]];
       if (!line) {
-        line = L.polyline(points, { color: '#64748b', weight: 3, dashArray: '7, 9', opacity: 0.72 }).addTo(this.map);
+        line = L.polyline(points, { color: '#94a3b8', weight: 3, dashArray: '7, 9', opacity: 0.72 }).addTo(this.map);
         this.participantLines.set(p.deviceId, line);
-      } else line.setLatLngs(points);
+      } else {
+        line.setLatLngs(points);
+      }
     }
+
     for (const [id, line] of [...this.participantLines.entries()]) {
       if (!validIds.has(id)) { line.remove(); this.participantLines.delete(id); }
+    }
+
+    // Only the host requests road routes. It then broadcasts them through
+    // SignalR, so all users see exactly the same road-connected group network
+    // without every phone consuming the routing API quota.
+    this.refreshGroupRoadRoutesIfNeeded();
+  }
+
+  private handleGroupRoute(route: FriendGroupRoute): void {
+    if (!route?.targetDeviceId || !route.points?.length) return;
+    this.groupRouteState.set(route.targetDeviceId, route);
+    this.renderGroupRoute(route);
+    this.participantLines.get(route.targetDeviceId)?.remove();
+    this.participantLines.delete(route.targetDeviceId);
+    this.refreshOwnWalkingRouteToHostIfNeeded();
+  }
+
+  private renderGroupRoute(route: FriendGroupRoute): void {
+    if (!this.map || !route.points?.length) return;
+    const points = route.points.map(point => L.latLng(point.latitude, point.longitude));
+
+    let casing = this.groupRouteCasings.get(route.targetDeviceId);
+    if (!casing) {
+      casing = L.polyline(points, {
+        color: '#ffffff', weight: 9, opacity: 0.94, lineCap: 'round', lineJoin: 'round', interactive: false
+      }).addTo(this.map);
+      this.groupRouteCasings.set(route.targetDeviceId, casing);
+    } else {
+      casing.setLatLngs(points);
+    }
+
+    let line = this.groupRouteLines.get(route.targetDeviceId);
+    if (!line) {
+      line = L.polyline(points, {
+        color: '#7c3aed', weight: 5, opacity: 0.94, lineCap: 'round', lineJoin: 'round', interactive: false
+      }).addTo(this.map);
+      this.groupRouteLines.set(route.targetDeviceId, line);
+    } else {
+      line.setLatLngs(points);
+    }
+
+    casing.bringToFront();
+    line.bringToFront();
+    for (const marker of this.participantMarkers.values()) marker.bringToFront();
+    this.currentMarker?.bringToFront();
+  }
+
+  private refreshGroupRoadRoutesIfNeeded(): void {
+    if (!this.isHost || !this.activeSessionCode) return;
+    const host = this.participantState.get(this.hostDeviceId);
+    if (!host || host.latitude == null || host.longitude == null) return;
+
+    const now = Date.now();
+    for (const participant of this.participantState.values()) {
+      if (participant.deviceId === this.hostDeviceId || participant.latitude == null || participant.longitude == null) continue;
+      if (this.groupRouteInFlight.has(participant.deviceId)) continue;
+
+      const existing = this.groupRouteState.get(participant.deviceId);
+      if (existing) {
+        const age = now - Date.parse(existing.updatedAtUtc);
+        const hostMoved = this.haversineMeters(
+          existing.fromLatitude, existing.fromLongitude, host.latitude, host.longitude
+        );
+        const participantMoved = this.haversineMeters(
+          existing.toLatitude, existing.toLongitude, participant.latitude, participant.longitude
+        );
+
+        // Keep markers live through SignalR, but only spend a routing request when
+        // movement is meaningful and at least 25 seconds have elapsed.
+        // With the app capped at 10 people, this keeps route updates responsive
+        // while staying comfortably below the routing service minute limit.
+        if (age < 25000 || (hostMoved < 25 && participantMoved < 25)) continue;
+      }
+
+      this.groupRouteInFlight.add(participant.deviceId);
+      const fromLatitude = host.latitude;
+      const fromLongitude = host.longitude;
+      const toLatitude = participant.latitude;
+      const toLongitude = participant.longitude;
+
+      this.routes.walking(fromLatitude, fromLongitude, toLatitude, toLongitude).subscribe({
+        next: route => {
+          this.groupRouteInFlight.delete(participant.deviceId);
+          if (!route.points?.length) return;
+          const shared: FriendGroupRoute = {
+            hostDeviceId: this.hostDeviceId,
+            targetDeviceId: participant.deviceId,
+            fromLatitude,
+            fromLongitude,
+            toLatitude,
+            toLongitude,
+            distanceMeters: route.distanceMeters,
+            durationSeconds: route.durationSeconds,
+            updatedAtUtc: new Date().toISOString(),
+            points: route.points
+          };
+          this.handleGroupRoute(shared);
+          void this.friends.publishGroupRoute(
+            this.activeSessionCode,
+            this.deviceId,
+            participant.deviceId,
+            {
+              fromLatitude, fromLongitude, toLatitude, toLongitude,
+              distanceMeters: route.distanceMeters,
+              durationSeconds: route.durationSeconds,
+              points: route.points
+            }
+          ).catch(() => {
+            this.status = 'Group route is visible locally but could not be shared yet.';
+          });
+        },
+        error: () => {
+          this.groupRouteInFlight.delete(participant.deviceId);
+          // Keep the temporary dashed connector if road routing is unavailable.
+        }
+      });
     }
   }
 
@@ -706,44 +894,28 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private refreshOwnWalkingRouteToHostIfNeeded(): void {
-    if (this.isHost || this.hostRouteInFlight || !this.latestOwnLocation || this.navigationActive) return;
-    const host = this.participantState.get(this.hostDeviceId);
-    if (!host || host.latitude == null || host.longitude == null) return;
+    if (this.isHost || !this.hostDeviceId) {
+      this.hostWalkingDistanceText = '';
+      this.hostWalkingDurationText = '';
+      this.hostRouteMode = '';
+      return;
+    }
 
-    const now = Date.now();
-    const originMoved = this.lastHostOrigin
-      ? this.haversineMeters(this.lastHostOrigin.latitude, this.lastHostOrigin.longitude, this.latestOwnLocation.latitude, this.latestOwnLocation.longitude)
-      : Infinity;
-    const targetMoved = this.lastHostTarget
-      ? this.haversineMeters(this.lastHostTarget.latitude, this.lastHostTarget.longitude, host.latitude, host.longitude)
-      : Infinity;
-    if (this.lastHostRouteAt && (now - this.lastHostRouteAt < 10000 || (originMoved < 20 && targetMoved < 20))) return;
+    // Guests reuse the host-published road route instead of each phone calling
+    // OpenRouteService separately. This keeps every map consistent and saves quota.
+    const route = this.groupRouteState.get(this.deviceId);
+    if (!route?.points?.length) {
+      this.hostWalkingDistanceText = '';
+      this.hostWalkingDurationText = '';
+      this.hostRouteMode = 'Waiting for road route from host';
+      return;
+    }
 
-    this.hostRouteInFlight = true;
-    this.lastHostRouteAt = now;
-    this.lastHostOrigin = { ...this.latestOwnLocation };
-    this.lastHostTarget = { latitude: host.latitude, longitude: host.longitude };
-    this.routes.walking(this.latestOwnLocation.latitude, this.latestOwnLocation.longitude, host.latitude, host.longitude).subscribe({
-      next: route => {
-        this.hostRouteInFlight = false;
-        if (!this.map || !route.points?.length) return;
-        this.hostWalkingRouteLine?.remove();
-        this.hostWalkingRouteLine = L.polyline(route.points.map(x => L.latLng(x.latitude, x.longitude)), { color: '#2563eb', weight: 7, opacity: 0.92, lineCap: 'round', lineJoin: 'round' }).addTo(this.map);
-        if (!this.hasAutoFittedHostRoute) {
-          this.hasAutoFittedHostRoute = true;
-          this.map.fitBounds(this.hostWalkingRouteLine.getBounds(), { padding: [52, 52], maxZoom: 17, animate: true });
-        }
-        this.hostWalkingDistanceText = this.formatDistance(route.distanceMeters);
-        this.hostWalkingDurationText = this.formatDuration(route.durationSeconds);
-        this.hostRouteMode = 'Walking route to host';
-      },
-      error: () => {
-        this.hostRouteInFlight = false;
-        this.hostWalkingDistanceText = '';
-        this.hostWalkingDurationText = '';
-        this.hostRouteMode = 'Host connector';
-      }
-    });
+    this.hostWalkingRouteLine?.remove();
+    this.hostWalkingRouteLine = undefined;
+    this.hostWalkingDistanceText = this.formatDistance(route.distanceMeters);
+    this.hostWalkingDurationText = this.formatDuration(route.durationSeconds);
+    this.hostRouteMode = 'Shared walking route to host';
   }
 
   private refreshNavigationRouteIfNeeded(force = false): void {
@@ -816,6 +988,12 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     for (const line of this.participantLines.values()) line.remove();
     this.participantMarkers.clear();
     this.participantLines.clear();
+    for (const line of this.groupRouteLines.values()) line.remove();
+    for (const casing of this.groupRouteCasings.values()) casing.remove();
+    this.groupRouteLines.clear();
+    this.groupRouteCasings.clear();
+    this.groupRouteState.clear();
+    this.groupRouteInFlight.clear();
     this.hostWalkingRouteLine?.remove();
     this.hostWalkingRouteLine = undefined;
     this.meetingPointMarker?.remove();
@@ -825,10 +1003,6 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.hostWalkingDistanceText = '';
     this.hostWalkingDurationText = '';
     this.hostRouteMode = '';
-    this.hostRouteInFlight = false;
-    this.lastHostRouteAt = 0;
-    this.lastHostOrigin = undefined;
-    this.lastHostTarget = undefined;
     this.lastAutoFitParticipantCount = 0;
     this.hasAutoFittedHostRoute = false;
   }
@@ -879,6 +1053,27 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
 
   private clearActiveSession(): void {
     localStorage.removeItem(this.activeSessionStorageKey);
+  }
+
+  private saveVehicleLocally(location: SavedParkingLocation): void {
+    localStorage.setItem(this.savedVehicleStorageKey, JSON.stringify(location));
+  }
+
+  private readVehicleLocally(): SavedParkingLocation | null {
+    const raw = localStorage.getItem(this.savedVehicleStorageKey);
+    if (!raw) return null;
+    try {
+      const value = JSON.parse(raw);
+      if (typeof value?.latitude !== 'number' || typeof value?.longitude !== 'number') return null;
+      return {
+        deviceId: typeof value.deviceId === 'string' ? value.deviceId : this.deviceId,
+        latitude: value.latitude,
+        longitude: value.longitude,
+        savedAtUtc: typeof value.savedAtUtc === 'string' ? value.savedAtUtc : undefined
+      };
+    } catch {
+      return null;
+    }
   }
 
   private getCurrentPosition(): Promise<GeolocationPosition> {

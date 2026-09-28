@@ -77,6 +77,7 @@
         <button class="btn btn-primary" type="button" (click)="saveVehicle()"><span>＋</span> Save location</button>
         <button class="btn btn-soft" type="button" (click)="findVehicle()"><span>⌖</span> {{ vehicleNavigationActive ? 'Refresh route' : 'Find vehicle' }}</button>
         <button class="btn btn-danger" type="button" *ngIf="vehicleNavigationActive" (click)="stopVehicleNavigation()"><span>■</span> Stop navigation</button>
+        <button class="btn btn-soft" type="button" (click)="clearSavedVehicle()"><span>×</span> Clear saved vehicle</button>
       </div>
       <div class="metric-strip" *ngIf="routeMode">
         <div><span>Mode</span><strong>{{ routeMode }}</strong></div>

@@ -6,33 +6,43 @@ namespace FindMe.Api.Controllers;
 [Route("api/[controller]")]
 public class ParkingController : ControllerBase
 {
-    // MVP only: in-memory storage. Replace with MySQL/Redis later.
-    private static readonly Dictionary<string, ParkingLocation> Store = new();
+    private readonly IParkingLocationStore _store;
+
+    public ParkingController(IParkingLocationStore store) => _store = store;
 
     [HttpPost("save")]
-    public IActionResult Save([FromBody] ParkingLocation location)
+    public async Task<IActionResult> Save([FromBody] ParkingLocationRequest location)
     {
         if (string.IsNullOrWhiteSpace(location.DeviceId))
-            return BadRequest("DeviceId is required.");
+            return BadRequest(new { message = "DeviceId is required." });
 
-        location.SavedAtUtc = DateTime.UtcNow;
-        Store[location.DeviceId] = location;
-        return Ok(location);
+        if (location.Latitude is < -90 or > 90 || location.Longitude is < -180 or > 180)
+            return BadRequest(new { message = "Invalid coordinates." });
+
+        var saved = await _store.SaveAsync(location.DeviceId.Trim(), location.Latitude, location.Longitude);
+        return Ok(saved);
     }
 
     [HttpGet("{deviceId}")]
-    public IActionResult Get(string deviceId)
+    public async Task<IActionResult> Get(string deviceId)
     {
-        return Store.TryGetValue(deviceId, out var location)
+        var location = await _store.GetAsync(deviceId);
+        return location is not null
             ? Ok(location)
             : NotFound(new { message = "No saved vehicle location found." });
     }
+
+    [HttpDelete("{deviceId}")]
+    public async Task<IActionResult> Delete(string deviceId)
+    {
+        await _store.DeleteAsync(deviceId);
+        return NoContent();
+    }
 }
 
-public class ParkingLocation
+public class ParkingLocationRequest
 {
     public string DeviceId { get; set; } = string.Empty;
     public double Latitude { get; set; }
     public double Longitude { get; set; }
-    public DateTime SavedAtUtc { get; set; }
 }

@@ -8,7 +8,7 @@ var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
 builder.Services.AddControllers();
-builder.Services.AddSignalR();
+builder.Services.AddSignalR(options => options.MaximumReceiveMessageSize = 512 * 1024);
 builder.Services.AddHttpClient();
 
 var redisUrl = Environment.GetEnvironmentVariable("REDIS_URL");
@@ -17,10 +17,12 @@ if (!string.IsNullOrWhiteSpace(redisUrl))
     var redisOptions = RedisConnectionOptions.FromUrl(redisUrl);
     builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisOptions));
     builder.Services.AddSingleton<IFriendSessionStore, RedisFriendSessionStore>();
+    builder.Services.AddSingleton<IParkingLocationStore, RedisParkingLocationStore>();
 }
 else
 {
     builder.Services.AddSingleton<IFriendSessionStore, InMemoryFriendSessionStore>();
+    builder.Services.AddSingleton<IParkingLocationStore, InMemoryParkingLocationStore>();
 }
 
 var allowedOrigins = (Environment.GetEnvironmentVariable("FRONTEND_ORIGINS")
@@ -44,10 +46,11 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 app.UseCors("Frontend");
 
-app.MapGet("/health", async (IFriendSessionStore store) => Results.Ok(new
+app.MapGet("/health", (IFriendSessionStore store, IParkingLocationStore parkingStore) => Results.Ok(new
 {
     status = "ok",
     sessionStore = store is RedisFriendSessionStore ? "redis" : "memory",
+    parkingStore = parkingStore is RedisParkingLocationStore ? "redis" : "memory",
     utc = DateTime.UtcNow
 }));
 

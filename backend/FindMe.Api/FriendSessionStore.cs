@@ -12,6 +12,7 @@ public interface IFriendSessionStore
     Task<bool> UpdateLocationAsync(string code, string deviceId, double latitude, double longitude);
     Task<LeaveSessionResult> LeaveAsync(string code, string deviceId);
     Task<FriendSession?> SetMeetingPointAsync(string code, string deviceId, double latitude, double longitude);
+    Task<FriendGroupRoute?> SetGroupRouteAsync(string code, string hostDeviceId, string targetDeviceId, FriendGroupRoute route);
 }
 
 public record JoinSessionResult(bool Success, FriendSession? Session, string? Error);
@@ -82,6 +83,7 @@ public class InMemoryFriendSessionStore : IFriendSessionStore
         }
 
         session.Participants.TryRemove(deviceId, out _);
+        session.GroupRoutes.TryRemove(deviceId, out _);
         if (session.Participants.IsEmpty)
         {
             _sessions.TryRemove(code, out _);
@@ -104,6 +106,23 @@ public class InMemoryFriendSessionStore : IFriendSessionStore
         }
 
         return Task.FromResult<FriendSession?>(session);
+    }
+
+    public Task<FriendGroupRoute?> SetGroupRouteAsync(string code, string hostDeviceId, string targetDeviceId, FriendGroupRoute route)
+    {
+        if (!_sessions.TryGetValue(code, out var session) || session.HostDeviceId != hostDeviceId)
+            return Task.FromResult<FriendGroupRoute?>(null);
+        if (!session.Participants.ContainsKey(targetDeviceId) || targetDeviceId == hostDeviceId)
+            return Task.FromResult<FriendGroupRoute?>(null);
+
+        lock (session.SyncRoot)
+        {
+            route.HostDeviceId = hostDeviceId;
+            route.TargetDeviceId = targetDeviceId;
+            route.UpdatedAtUtc = DateTime.UtcNow;
+            session.GroupRoutes[targetDeviceId] = route;
+        }
+        return Task.FromResult<FriendGroupRoute?>(route);
     }
 
     internal static string GenerateCode() => string.Create(6, Random.Shared, static (span, random) =>
@@ -192,6 +211,7 @@ public class RedisFriendSessionStore : IFriendSessionStore
             }
 
             session.Participants.TryRemove(deviceId, out _);
+            session.GroupRoutes.TryRemove(deviceId, out _);
             if (session.Participants.IsEmpty)
             {
                 await _db.KeyDeleteAsync(SessionKey(code));
@@ -216,6 +236,25 @@ public class RedisFriendSessionStore : IFriendSessionStore
             session.MeetingUpdatedAtUtc = DateTime.UtcNow;
             await WriteAsync(session);
             return session;
+        });
+    }
+
+    public async Task<FriendGroupRoute?> SetGroupRouteAsync(string code, string hostDeviceId, string targetDeviceId, FriendGroupRoute route)
+    {
+        return await WithSessionLockAsync(code, async () =>
+        {
+            var session = await ReadAsync(code);
+            if (session is null || session.HostDeviceId != hostDeviceId)
+                return null;
+            if (!session.Participants.ContainsKey(targetDeviceId) || targetDeviceId == hostDeviceId)
+                return null;
+
+            route.HostDeviceId = hostDeviceId;
+            route.TargetDeviceId = targetDeviceId;
+            route.UpdatedAtUtc = DateTime.UtcNow;
+            session.GroupRoutes[targetDeviceId] = route;
+            await WriteAsync(session);
+            return route;
         });
     }
 
@@ -256,6 +295,7 @@ public class FriendSession
     public string HostDeviceId { get; set; } = string.Empty;
     public DateTime CreatedAtUtc { get; set; }
     public ConcurrentDictionary<string, FriendParticipant> Participants { get; set; } = new();
+    public ConcurrentDictionary<string, FriendGroupRoute> GroupRoutes { get; set; } = new();
     public double? MeetingLatitude { get; set; }
     public double? MeetingLongitude { get; set; }
     public DateTime? MeetingUpdatedAtUtc { get; set; }
@@ -274,6 +314,26 @@ public class FriendSession
         session.Participants[deviceId] = FriendParticipant.Create(deviceId, displayName, 1, true);
         return session;
     }
+}
+
+public class FriendGroupRoute
+{
+    public string HostDeviceId { get; set; } = string.Empty;
+    public string TargetDeviceId { get; set; } = string.Empty;
+    public double FromLatitude { get; set; }
+    public double FromLongitude { get; set; }
+    public double ToLatitude { get; set; }
+    public double ToLongitude { get; set; }
+    public double DistanceMeters { get; set; }
+    public double DurationSeconds { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+    public List<FriendGroupRoutePoint> Points { get; set; } = new();
+}
+
+public class FriendGroupRoutePoint
+{
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
 }
 
 public class FriendParticipant

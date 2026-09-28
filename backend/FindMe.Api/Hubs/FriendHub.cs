@@ -45,6 +45,47 @@ public class FriendHub : Hub
         });
     }
 
+    public async Task PublishGroupRoute(
+        string sessionCode,
+        string deviceId,
+        string targetDeviceId,
+        SharedGroupRouteRequest route)
+    {
+        var session = await _store.GetAsync(sessionCode);
+        if (session is null)
+            throw new HubException("Session not found.");
+        if (session.HostDeviceId != deviceId)
+            throw new HubException("Only the host can publish shared group routes.");
+        if (!session.Participants.ContainsKey(targetDeviceId) || targetDeviceId == deviceId)
+            throw new HubException("Invalid route target.");
+        if (route.Points is null || route.Points.Count < 2 || route.Points.Count > 5000)
+            throw new HubException("Invalid route geometry.");
+        if (route.Points.Any(p => p.Latitude is < -90 or > 90 || p.Longitude is < -180 or > 180))
+            throw new HubException("Invalid route coordinates.");
+
+        var saved = await _store.SetGroupRouteAsync(sessionCode, deviceId, targetDeviceId, new FriendGroupRoute
+        {
+            HostDeviceId = deviceId,
+            TargetDeviceId = targetDeviceId,
+            FromLatitude = route.FromLatitude,
+            FromLongitude = route.FromLongitude,
+            ToLatitude = route.ToLatitude,
+            ToLongitude = route.ToLongitude,
+            DistanceMeters = route.DistanceMeters,
+            DurationSeconds = route.DurationSeconds,
+            Points = route.Points.Select(p => new FriendGroupRoutePoint
+            {
+                Latitude = p.Latitude,
+                Longitude = p.Longitude
+            }).ToList()
+        });
+
+        if (saved is null)
+            throw new HubException("Could not save shared group route.");
+
+        await Clients.Group(sessionCode).SendAsync("GroupRouteUpdated", saved);
+    }
+
     public async Task SetMeetingPoint(string sessionCode, string deviceId, double latitude, double longitude)
     {
         if (latitude is < -90 or > 90 || longitude is < -180 or > 180)
@@ -98,6 +139,26 @@ public class FriendHub : Hub
                 p.Longitude,
                 p.LocationUpdatedAtUtc
             })
+            .ToArray(),
+        groupRoutes = session.GroupRoutes.Values
+            .OrderBy(r => r.TargetDeviceId)
             .ToArray()
     };
+}
+
+public class SharedGroupRouteRequest
+{
+    public double FromLatitude { get; set; }
+    public double FromLongitude { get; set; }
+    public double ToLatitude { get; set; }
+    public double ToLongitude { get; set; }
+    public double DistanceMeters { get; set; }
+    public double DurationSeconds { get; set; }
+    public List<SharedGroupRoutePointRequest> Points { get; set; } = new();
+}
+
+public class SharedGroupRoutePointRequest
+{
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
 }

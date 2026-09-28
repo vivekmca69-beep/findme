@@ -21,6 +21,24 @@ export interface FriendParticipantState {
   locationUpdatedAtUtc?: string | null;
 }
 
+export interface FriendGroupRoutePoint {
+  latitude: number;
+  longitude: number;
+}
+
+export interface FriendGroupRoute {
+  hostDeviceId: string;
+  targetDeviceId: string;
+  fromLatitude: number;
+  fromLongitude: number;
+  toLatitude: number;
+  toLongitude: number;
+  distanceMeters: number;
+  durationSeconds: number;
+  updatedAtUtc: string;
+  points: FriendGroupRoutePoint[];
+}
+
 export interface FriendSessionState {
   sessionCode: string;
   hostDeviceId: string;
@@ -30,6 +48,7 @@ export interface FriendSessionState {
   meetingLongitude?: number | null;
   meetingUpdatedAtUtc?: string | null;
   participants: FriendParticipantState[];
+  groupRoutes?: FriendGroupRoute[];
 }
 
 export interface FriendSessionIdentity {
@@ -66,7 +85,8 @@ export class FriendService {
     deviceId: string,
     onLocation: (update: FriendLocationUpdate) => void,
     onSessionState: (state: FriendSessionState) => void,
-    onSessionClosed: () => void
+    onSessionClosed: () => void,
+    onGroupRoute: (route: FriendGroupRoute) => void
   ): Promise<void> {
     await this.disconnect();
 
@@ -81,6 +101,7 @@ export class FriendService {
     this.connection.on('LocationUpdated', (update: FriendLocationUpdate) => onLocation(update));
     this.connection.on('SessionState', (state: FriendSessionState) => onSessionState(state));
     this.connection.on('ParticipantChanged', (state: FriendSessionState) => onSessionState(state));
+    this.connection.on('GroupRouteUpdated', (route: FriendGroupRoute) => onGroupRoute(route));
     this.connection.on('SessionClosed', () => onSessionClosed());
 
     this.connection.onreconnected(async () => {
@@ -97,6 +118,24 @@ export class FriendService {
   async sendLocation(sessionCode: string, deviceId: string, latitude: number, longitude: number): Promise<void> {
     if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) return;
     await this.connection.invoke('UpdateLocation', sessionCode, deviceId, latitude, longitude);
+  }
+
+  async publishGroupRoute(
+    sessionCode: string,
+    deviceId: string,
+    targetDeviceId: string,
+    route: {
+      fromLatitude: number;
+      fromLongitude: number;
+      toLatitude: number;
+      toLongitude: number;
+      distanceMeters: number;
+      durationSeconds: number;
+      points: FriendGroupRoutePoint[];
+    }
+  ): Promise<void> {
+    if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) return;
+    await this.connection.invoke('PublishGroupRoute', sessionCode, deviceId, targetDeviceId, route);
   }
 
   async setMeetingPoint(sessionCode: string, deviceId: string, latitude: number, longitude: number): Promise<void> {
