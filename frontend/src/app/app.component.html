@@ -8,11 +8,11 @@
       </div>
       <span class="privacy-pill">Private group</span>
     </div>
-    <p class="hero-copy">Live group tracking, road navigation, compass guidance, smart meeting points and vehicle recovery.</p>
+    <p class="hero-copy">Live group tracking, road navigation, compass guidance and vehicle recovery.</p>
   </header>
 
   <section class="map-stage" [class.map-stage--fullscreen]="isMapFullscreen" [class.map-stage--has-session]="isSharing">
-    <div id="map" class="map" aria-label="Map showing your location, vehicle, meeting point and connected people"></div>
+    <div id="map" class="map" aria-label="Map showing your location, vehicle and connected people"></div>
 
     <div class="map-top-stack">
       <div class="map-type-toggle glass" role="group" aria-label="Map view">
@@ -172,28 +172,8 @@
             <span><span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('compassHost')" aria-hidden="true"></span><ng-container *ngIf="!isBusy('compassHost')">↑</ng-container></span>
             <strong>{{ isBusy('compassHost') ? 'Starting compass…' : 'Compass to host' }}</strong><small>Direct bearing</small>
           </button>
-          <button class="tool-button" type="button" *ngIf="isHost" (click)="createSmartMeetingPoint()" [disabled]="isBusy('meetingPoint')" [attr.aria-busy]="isBusy('meetingPoint')">
-            <span><span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('meetingPoint')" aria-hidden="true"></span><ng-container *ngIf="!isBusy('meetingPoint')">📍</ng-container></span>
-            <strong>{{ isBusy('meetingPoint') ? 'Creating point…' : 'Smart meeting point' }}</strong><small>Balanced center of live members</small>
-          </button>
-          <button class="tool-button" type="button" *ngIf="hasMeetingPoint" (click)="startNavigation('meeting')" [disabled]="isBusy('navigateMeeting')" [attr.aria-busy]="isBusy('navigateMeeting')">
-            <span><span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('navigateMeeting')" aria-hidden="true"></span><ng-container *ngIf="!isBusy('navigateMeeting')">🧭</ng-container></span>
-            <strong>{{ isBusy('navigateMeeting') ? 'Calculating route…' : 'Navigate to meeting point' }}</strong><small>Uses selected route mode</small>
-          </button>
-          <button class="tool-button" type="button" *ngIf="hasMeetingPoint" (click)="toggleCompass('meeting')" [disabled]="isBusy('compassMeeting')" [attr.aria-busy]="isBusy('compassMeeting')">
-            <span><span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('compassMeeting')" aria-hidden="true"></span><ng-container *ngIf="!isBusy('compassMeeting')">🧭</ng-container></span>
-            <strong>{{ isBusy('compassMeeting') ? 'Starting compass…' : 'Compass to meeting point' }}</strong><small>{{ compassActive && navigationTarget === 'meeting' ? 'Stop compass' : 'Direct bearing' }}</small>
-          </button>
         </div>
 
-        <div class="meeting-card" *ngIf="hasMeetingPoint">
-          <div class="meeting-pin">📍</div>
-          <div>
-            <span class="micro-label">GROUP MEETING POINT</span>
-            <strong>Balanced location is active</strong>
-            <small>Everyone sees the same meeting marker and can navigate to it.</small>
-          </div>
-        </div>
 
         <div class="participant-list">
           <div class="participant-row" *ngFor="let person of participants">

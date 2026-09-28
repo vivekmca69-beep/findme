@@ -19,7 +19,7 @@ interface ParticipantVm extends FriendParticipantState {
   lastSeenText?: string;
 }
 
-type NavigationTarget = 'host' | 'meeting';
+type NavigationTarget = 'host';
 
 @Component({
   selector: 'app-root',
@@ -35,7 +35,6 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   private satelliteLabelsLayer?: L.TileLayer;
   private currentMarker?: L.CircleMarker;
   private vehicleMarker?: L.CircleMarker;
-  private meetingPointMarker?: L.CircleMarker;
   private routeLine?: L.Polyline;
   private fallbackLine?: L.Polyline;
   private vehicleRouteCasingLine?: L.Polyline;
@@ -85,9 +84,6 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   hostWalkingDurationText = '';
   hostRouteMode = '';
 
-  meetingLatitude?: number;
-  meetingLongitude?: number;
-  meetingUpdatedAtUtc?: string;
 
   navigationActive = false;
   navigationTarget: NavigationTarget = 'host';
@@ -132,9 +128,6 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     return this.participants.filter(p => p.deviceId !== this.deviceId);
   }
 
-  get hasMeetingPoint(): boolean {
-    return this.meetingLatitude != null && this.meetingLongitude != null;
-  }
 
   get isVehicleActionBusy(): boolean {
     return this.isBusy('saveVehicle') || this.isBusy('findVehicle') || this.isBusy('clearVehicle');
@@ -455,41 +448,20 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async createSmartMeetingPoint(): Promise<void> {
-    if (!this.isHost || !this.activeSessionCode) return;
-    const live = [...this.participantState.values()].filter(p => p.latitude != null && p.longitude != null);
-    if (live.length < 2) {
-      this.status = 'At least two live GPS positions are required for a meeting point.';
-      return;
-    }
-    if (!this.beginBusy('meetingPoint')) return;
-
-    const latitude = live.reduce((sum, p) => sum + (p.latitude ?? 0), 0) / live.length;
-    const longitude = live.reduce((sum, p) => sum + (p.longitude ?? 0), 0) / live.length;
-    try {
-      await this.friends.setMeetingPoint(this.activeSessionCode, this.deviceId, latitude, longitude);
-      this.status = 'Balanced meeting point shared with the group.';
-    } catch (error) {
-      this.status = this.errorMessage(error, 'Could not set the meeting point.');
-    } finally {
-      this.endBusy('meetingPoint');
-    }
-  }
-
   startNavigation(target: NavigationTarget): void {
     if (!this.latestOwnLocation) {
       this.status = 'Waiting for your GPS location before starting navigation.';
       return;
     }
     if (!this.getTargetCoordinates(target)) {
-      this.status = target === 'meeting' ? 'Create a meeting point first.' : 'Waiting for the host GPS.';
+      this.status = 'Waiting for the host GPS.';
       return;
     }
-    const action = target === 'meeting' ? 'navigateMeeting' : 'navigateHost';
+    const action = 'navigateHost';
     if (!this.beginBusy(action)) return;
     this.pendingNavigationBusyAction = action;
     this.navigationTarget = target;
-    this.navigationTargetName = target === 'meeting' ? 'Meeting point' : (this.hostParticipant?.displayName || 'Host');
+    this.navigationTargetName = this.hostParticipant?.displayName || 'Host';
     this.navigationActive = true;
     this.navigationInstruction = 'Calculating route…';
     this.lastNavigationRouteAt = 0;
@@ -520,15 +492,15 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     if (!this.latestOwnLocation || !this.getTargetCoordinates(target)) {
-      this.status = target === 'meeting' ? 'Meeting point or GPS is not ready.' : 'Host GPS is not ready.';
+      this.status = 'Host GPS is not ready.';
       return;
     }
 
-    const action = target === 'meeting' ? 'compassMeeting' : 'compassHost';
+    const action = 'compassHost';
     if (!this.beginBusy(action)) return;
     try {
       this.navigationTarget = target;
-      this.compassTargetName = target === 'meeting' ? 'Meeting point' : (this.hostParticipant?.displayName || 'Host');
+      this.compassTargetName = this.hostParticipant?.displayName || 'Host';
 
       const orientationCtor = DeviceOrientationEvent as any;
       if (typeof orientationCtor.requestPermission === 'function') {
@@ -612,7 +584,6 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     for (const p of this.participantState.values()) {
       if (p.latitude != null && p.longitude != null) points.push([p.latitude, p.longitude]);
     }
-    if (this.hasMeetingPoint) points.push([this.meetingLatitude!, this.meetingLongitude!]);
     if (points.length < 2) return;
     const bounds = L.latLngBounds(points);
     this.map.fitBounds(bounds, {
@@ -694,10 +665,6 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.participantCount = state.participantCount;
     this.maxParticipants = state.maxParticipants;
 
-    this.meetingLatitude = state.meetingLatitude ?? undefined;
-    this.meetingLongitude = state.meetingLongitude ?? undefined;
-    this.meetingUpdatedAtUtc = state.meetingUpdatedAtUtc ?? undefined;
-    this.renderMeetingPoint();
 
     const incomingIds = new Set(state.participants.map(p => p.deviceId));
     for (const id of [...this.participantState.keys()]) {
@@ -814,20 +781,6 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     marker.bindTooltip(`${p.isHost ? '⭐ ' : '👤 '}${p.displayName}${p.isHost ? ' (Host)' : ''}`, {
       permanent: true, direction: 'top', offset: [0, -8]
     });
-  }
-
-  private renderMeetingPoint(): void {
-    if (!this.map || !this.hasMeetingPoint) {
-      this.meetingPointMarker?.remove();
-      this.meetingPointMarker = undefined;
-      return;
-    }
-    const lat = this.meetingLatitude!;
-    const lng = this.meetingLongitude!;
-    if (!this.meetingPointMarker) {
-      this.meetingPointMarker = L.circleMarker([lat, lng], { radius: 13, weight: 4, color: '#ffffff', fillColor: '#10b981', fillOpacity: 1 }).addTo(this.map)
-        .bindTooltip('📍 Meeting point', { permanent: true, direction: 'top', offset: [0, -8] });
-    } else this.meetingPointMarker.setLatLng([lat, lng]);
   }
 
   private redrawHostConnectors(): void {
@@ -1083,10 +1036,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
-  private getTargetCoordinates(target: NavigationTarget): { latitude: number; longitude: number } | null {
-    if (target === 'meeting') {
-      return this.hasMeetingPoint ? { latitude: this.meetingLatitude!, longitude: this.meetingLongitude! } : null;
-    }
+  private getTargetCoordinates(_target: NavigationTarget): { latitude: number; longitude: number } | null {
     const host = this.participantState.get(this.hostDeviceId);
     return host?.latitude != null && host.longitude != null ? { latitude: host.latitude, longitude: host.longitude } : null;
   }
@@ -1121,10 +1071,6 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.groupRouteInFlight.clear();
     this.hostWalkingRouteLine?.remove();
     this.hostWalkingRouteLine = undefined;
-    this.meetingPointMarker?.remove();
-    this.meetingPointMarker = undefined;
-    this.meetingLatitude = undefined;
-    this.meetingLongitude = undefined;
     this.hostWalkingDistanceText = '';
     this.hostWalkingDurationText = '';
     this.hostRouteMode = '';
@@ -1223,8 +1169,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
 
       this.streetLayer.addTo(this.map);
       L.control.zoom({ position: 'bottomright' }).addTo(this.map);
-      this.renderMeetingPoint();
-    }
+      }
   }
 
   private showSavedVehicle(lat: number, lng: number): void {
