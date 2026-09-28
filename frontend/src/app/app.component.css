@@ -317,3 +317,180 @@ body.findme-map-fullscreen-open { overflow:hidden; }
   cursor:not-allowed;
   background:#f3f4f6;
 }
+
+/* V10 mobile map layout + transport modes */
+.map-top-stack {
+  position:absolute;
+  top:14px;
+  left:14px;
+  z-index:660;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:8px;
+  max-width:calc(100% - 92px);
+  pointer-events:none;
+}
+.map-top-stack > * { pointer-events:auto; }
+
+.map-top-stack .map-type-toggle,
+.map-top-stack .route-mode-toggle,
+.map-top-stack .session-float {
+  position:static!important;
+  top:auto!important;
+  left:auto!important;
+  right:auto!important;
+  bottom:auto!important;
+  margin:0;
+}
+
+.map-type-toggle,
+.route-mode-toggle {
+  width:max-content;
+  max-width:100%;
+}
+
+.route-mode-toggle {
+  display:flex;
+  gap:4px;
+  padding:4px;
+  border-radius:16px;
+  overflow:hidden;
+}
+.route-mode-toggle button {
+  min-width:64px;
+  min-height:48px;
+  padding:5px 10px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:2px;
+  border:0;
+  border-radius:12px;
+  background:transparent;
+  color:#475467;
+  font:inherit;
+  font-size:10px;
+  font-weight:850;
+  cursor:pointer;
+  transition:background .15s ease,color .15s ease,box-shadow .15s ease;
+}
+.route-mode-toggle button.active {
+  background:#0f6fff;
+  color:#fff;
+  box-shadow:0 6px 16px rgba(15,111,255,.28);
+}
+.route-mode-toggle .travel-icon {
+  font-size:18px;
+  line-height:1;
+}
+.route-mode-toggle button:disabled { opacity:.55; cursor:wait; }
+
+.map-top-stack .session-float {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  width:auto;
+  max-width:100%;
+  padding:8px 10px;
+  border-radius:13px;
+}
+.session-code-compact {
+  display:flex;
+  align-items:baseline;
+  gap:7px;
+  min-width:0;
+}
+.session-code-compact .micro-label { flex:none; }
+.session-code-compact strong {
+  font-size:13px;
+  letter-spacing:.08em;
+  white-space:nowrap;
+}
+.map-top-stack .connected-pill {
+  font-size:10px;
+  white-space:nowrap;
+}
+
+/* Keep custom controls in their own right rail, never on top of the left stack. */
+.map-control-stack,
+.map-stage--has-session .map-control-stack,
+.map-stage--fullscreen .map-control-stack,
+.map-stage--fullscreen.map-stage--has-session .map-control-stack {
+  top:14px;
+  right:14px;
+}
+
+/* Reserve right-side space for native MapLibre controls. */
+.map-status,
+.map-stage--fullscreen .map-status {
+  max-width:calc(100% - 92px);
+}
+
+/* Google-like strong blue route presentation. */
+:host ::ng-deep .findme-route-primary,
+:host ::ng-deep .findme-route-shared {
+  color:#0f6fff;
+}
+
+@media (max-width:600px) {
+  .map-stage {
+    overflow:hidden;
+  }
+  .map-top-stack {
+    top:max(10px, env(safe-area-inset-top));
+    left:10px;
+    gap:7px;
+    max-width:calc(100% - 76px);
+  }
+  .map-type-toggle button {
+    min-height:36px;
+    padding:0 11px;
+    font-size:11px;
+  }
+  .route-mode-toggle button {
+    min-width:58px;
+    min-height:46px;
+    padding:4px 8px;
+  }
+  .route-mode-toggle .travel-icon { font-size:17px; }
+  .map-top-stack .session-float {
+    padding:7px 9px;
+    gap:8px;
+  }
+  .session-code-compact strong { font-size:12px; }
+  .map-control-stack,
+  .map-stage--has-session .map-control-stack,
+  .map-stage--fullscreen .map-control-stack,
+  .map-stage--fullscreen.map-stage--has-session .map-control-stack {
+    top:max(10px, env(safe-area-inset-top));
+    right:10px;
+  }
+  .map-status,
+  .map-stage--fullscreen .map-status {
+    left:10px;
+    bottom:max(10px, env(safe-area-inset-bottom));
+    max-width:calc(100% - 78px);
+  }
+  .map-gesture-hint { display:none!important; }
+  :host ::ng-deep .maplibregl-ctrl-bottom-right {
+    right:10px;
+    bottom:calc(58px + env(safe-area-inset-bottom));
+  }
+  .map-stage--fullscreen .map {
+    height:100dvh;
+    min-height:100dvh;
+  }
+}
+
+@media (max-width:390px) {
+  .map-top-stack { max-width:calc(100% - 70px); }
+  .route-mode-toggle button {
+    min-width:54px;
+    padding:4px 6px;
+  }
+  .route-mode-toggle .travel-icon { font-size:16px; }
+  .route-mode-toggle button span:last-child { font-size:9px; }
+  .map-top-stack .connected-pill { font-size:9px; }
+}

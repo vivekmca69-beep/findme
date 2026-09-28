@@ -14,17 +14,32 @@
   <section class="map-stage" [class.map-stage--fullscreen]="isMapFullscreen" [class.map-stage--has-session]="isSharing">
     <div id="map" class="map" aria-label="Map showing your location, vehicle, meeting point and connected people"></div>
 
-    <div class="map-type-toggle glass" role="group" aria-label="Map view">
-      <button type="button" [class.active]="mapMode === 'street'" (click)="setMapMode('street')">Map</button>
-      <button type="button" [class.active]="mapMode === 'satellite'" (click)="setMapMode('satellite')">Satellite</button>
-    </div>
+    <div class="map-top-stack">
+      <div class="map-type-toggle glass" role="group" aria-label="Map view">
+        <button type="button" [class.active]="mapMode === 'street'" (click)="setMapMode('street')">Map</button>
+        <button type="button" [class.active]="mapMode === 'satellite'" (click)="setMapMode('satellite')">Satellite</button>
+      </div>
 
-    <div class="route-mode-toggle glass" role="group" aria-label="Route preference">
-      <button type="button" [class.active]="routePreferenceMode === 'main-roads'" (click)="setRoutePreferenceMode('main-roads')" [disabled]="isRouteProcessing">Main roads</button>
-      <button type="button" [class.active]="routePreferenceMode === 'walking'" (click)="setRoutePreferenceMode('walking')" [disabled]="isRouteProcessing">Walking</button>
-    </div>
+      <div class="route-mode-toggle glass" role="group" aria-label="Travel mode">
+        <button type="button" [class.active]="routePreferenceMode === 'car'" (click)="setRoutePreferenceMode('car')" [disabled]="isRouteProcessing" aria-label="Car route">
+          <span class="travel-icon">🚗</span><span>Car</span>
+        </button>
+        <button type="button" [class.active]="routePreferenceMode === 'bicycle'" (click)="setRoutePreferenceMode('bicycle')" [disabled]="isRouteProcessing" aria-label="Bicycle route">
+          <span class="travel-icon">🚲</span><span>Bike</span>
+        </button>
+        <button type="button" [class.active]="routePreferenceMode === 'walking'" (click)="setRoutePreferenceMode('walking')" [disabled]="isRouteProcessing" aria-label="Walking route">
+          <span class="travel-icon">🚶</span><span>Walk</span>
+        </button>
+      </div>
 
-    <div class="map-gesture-hint">Pinch to zoom · twist 2 fingers to rotate · drag 2 fingers to tilt</div>
+      <div class="session-float glass" *ngIf="isSharing">
+        <div class="session-code-compact">
+          <span class="micro-label">Group</span>
+          <strong>{{ activeSessionCode }}</strong>
+        </div>
+        <div class="connected-pill"><span></span>{{ participantCount }}/{{ maxParticipants }}</div>
+      </div>
+    </div>
 
     <div class="map-status glass" aria-live="polite" [attr.aria-busy]="isAnyActionBusy">
       <span class="status-spinner" *ngIf="isAnyActionBusy" aria-hidden="true"></span>
@@ -32,13 +47,6 @@
       <span>{{ status }}</span>
     </div>
 
-    <div class="session-float glass" *ngIf="isSharing">
-      <div>
-        <span class="micro-label">Group code</span>
-        <strong>{{ activeSessionCode }}</strong>
-      </div>
-      <div class="connected-pill"><span></span>{{ participantCount }}/{{ maxParticipants }} connected</div>
-    </div>
 
     <div class="map-control-stack">
       <button class="map-control glass" type="button" (click)="toggleMapFullscreen()" [attr.aria-label]="isMapFullscreen ? 'Exit full screen map' : 'Open full screen map'">
@@ -78,7 +86,7 @@
         <div class="icon-orb">🚗</div>
         <div><span class="micro-label">Parking</span><h2>My Vehicle</h2></div>
       </div>
-      <p>Drop a parking pin now and get a main-road route back later. Switch to Walking when needed.</p>
+      <p>Save your parking point and choose Car, Bike or Walk when you navigate back.</p>
       <div class="button-row">
         <button class="btn btn-primary" type="button" (click)="saveVehicle()" [disabled]="isVehicleActionBusy" [attr.aria-busy]="isBusy('saveVehicle')">
           <span class="btn-spinner" *ngIf="isBusy('saveVehicle')" aria-hidden="true"></span>

@@ -70,7 +70,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   distanceText = '';
   durationText = '';
   routeMode = '';
-  routePreferenceMode: RoutePreferenceMode = 'main-roads';
+  routePreferenceMode: RoutePreferenceMode = 'car';
   vehicleNavigationActive = false;
 
   displayName = '';
@@ -266,7 +266,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.vehicleTarget = { latitude: vehicle.latitude, longitude: vehicle.longitude };
     this.vehicleNavigationActive = true;
     this.routeMode = 'Calculating road route…';
-    this.status = 'Starting live walking navigation to your vehicle...';
+    this.status = `Starting live ${this.routeModeLabel(this.routePreferenceMode).toLowerCase()} navigation to your vehicle...`;
 
     this.getCurrentPosition().then(current => {
       const currentLat = current.coords.latitude;
@@ -576,9 +576,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       this.refreshGroupRoadRoutesIfNeeded();
     }
 
-    this.status = mode === 'main-roads'
-      ? 'Main-roads routing selected.'
-      : 'Walking routing selected.';
+    this.status = `${this.routeModeLabel(mode)} routing selected.`;
   }
 
   setMapMode(mode: 'street' | 'satellite'): void {
@@ -1314,8 +1312,8 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
 
     this.distanceText = this.formatDistance(route.distanceMeters);
     this.durationText = this.formatDuration(route.durationSeconds);
-    this.routeMode = this.routePreferenceMode === 'main-roads' ? 'Main roads' : 'Walking';
-    this.status = this.routePreferenceMode === 'main-roads' ? 'Main-road route to your vehicle is active.' : 'Walking route to your vehicle is active.';
+    this.routeMode = this.routeModeLabel(this.routePreferenceMode);
+    this.status = `${this.routeModeLabel(this.routePreferenceMode)} route to your vehicle is active.`;
   }
 
   private showFallbackLine(curLat: number, curLng: number, vehLat: number, vehLng: number): void {
@@ -1339,6 +1337,14 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.routeLine = undefined;
     this.vehicleRouteCasingLine = undefined;
     this.fallbackLine = undefined;
+  }
+
+  private routeModeLabel(mode: RoutePreferenceMode): string {
+    switch (mode) {
+      case 'car': return 'Car';
+      case 'bicycle': return 'Bicycle';
+      default: return 'Walking';
+    }
   }
 
   private clearRouteInfo(): void { this.distanceText = ''; this.durationText = ''; this.routeMode = ''; }

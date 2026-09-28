@@ -14,7 +14,7 @@ export interface RouteStep {
   type: number;
 }
 
-export type RoutePreferenceMode = 'main-roads' | 'walking';
+export type RoutePreferenceMode = 'car' | 'bicycle' | 'walking';
 
 export interface WalkingRoute {
   mode?: RoutePreferenceMode;
@@ -36,7 +36,7 @@ export class RouteService {
     fromLng: number,
     toLat: number,
     toLng: number,
-    mode: RoutePreferenceMode = 'main-roads'
+    mode: RoutePreferenceMode = 'car'
   ) {
     const params = new HttpParams()
       .set('fromLat', fromLat)

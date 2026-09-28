@@ -25,7 +25,7 @@ public class RouteController : ControllerBase
         [FromQuery] double fromLng,
         [FromQuery] double toLat,
         [FromQuery] double toLng,
-        [FromQuery] string mode = "main-roads",
+        [FromQuery] string mode = "car",
         CancellationToken cancellationToken = default)
     {
         if (!IsValidCoordinate(fromLat, fromLng) || !IsValidCoordinate(toLat, toLng))
@@ -40,16 +40,28 @@ public class RouteController : ControllerBase
             });
         }
 
-        // "main-roads" intentionally uses the driving-car graph with fastest
-        // weighting. The previous foot-walking profile naturally favours
-        // footways/paths/residential ways and can therefore look like a
-        // shortcut through narrow lanes. Main-roads mode behaves much closer
-        // to familiar road navigation by preferring faster, higher-class roads.
-        var normalizedMode = string.Equals(mode, "walking", StringComparison.OrdinalIgnoreCase)
-            ? "walking"
-            : "main-roads";
-        var profile = normalizedMode == "walking" ? "foot-walking" : "driving-car";
-        var preference = normalizedMode == "walking" ? "recommended" : "fastest";
+        // Three transport profiles are exposed to the web app:
+        // car      -> fastest automotive route (favours higher-speed roads)
+        // bicycle  -> regular bicycle routing
+        // walking  -> pedestrian routing
+        //
+        // Note: bicycle is human-powered cycling. OpenRouteService does not
+        // provide Google's motorized TWO_WHEELER / motorcycle profile.
+        var normalizedMode = mode.Trim().ToLowerInvariant() switch
+        {
+            "walking" => "walking",
+            "bicycle" => "bicycle",
+            _ => "car"
+        };
+
+        var profile = normalizedMode switch
+        {
+            "walking" => "foot-walking",
+            "bicycle" => "cycling-regular",
+            _ => "driving-car"
+        };
+
+        var preference = normalizedMode == "car" ? "fastest" : "recommended";
 
         var client = _httpClientFactory.CreateClient();
         using var request = new HttpRequestMessage(
@@ -80,7 +92,7 @@ public class RouteController : ControllerBase
         {
             return StatusCode((int)response.StatusCode, new
             {
-                message = "Walking route service returned an error.",
+                message = "Routing service returned an error.",
                 details = json
             });
         }
@@ -137,7 +149,7 @@ public class RouteController : ControllerBase
 
 public class WalkingRouteResponse
 {
-    public string Mode { get; set; } = "main-roads";
+    public string Mode { get; set; } = "car";
     public string Profile { get; set; } = "driving-car";
     public double DistanceMeters { get; set; }
     public double DurationSeconds { get; set; }
