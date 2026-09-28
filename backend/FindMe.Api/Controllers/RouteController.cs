@@ -18,13 +18,15 @@ public class RouteController : ControllerBase
         _configuration = configuration;
     }
 
-    [HttpGet("walking")]
-    public async Task<IActionResult> GetWalkingRoute(
+    [HttpGet("preferred")]
+    [HttpGet("walking")] // Backward-compatible alias for older frontends.
+    public async Task<IActionResult> GetPreferredRoute(
         [FromQuery] double fromLat,
         [FromQuery] double fromLng,
         [FromQuery] double toLat,
         [FromQuery] double toLng,
-        CancellationToken cancellationToken)
+        [FromQuery] string mode = "main-roads",
+        CancellationToken cancellationToken = default)
     {
         if (!IsValidCoordinate(fromLat, fromLng) || !IsValidCoordinate(toLat, toLng))
             return BadRequest(new { message = "Invalid coordinates." });
@@ -38,10 +40,21 @@ public class RouteController : ControllerBase
             });
         }
 
+        // "main-roads" intentionally uses the driving-car graph with fastest
+        // weighting. The previous foot-walking profile naturally favours
+        // footways/paths/residential ways and can therefore look like a
+        // shortcut through narrow lanes. Main-roads mode behaves much closer
+        // to familiar road navigation by preferring faster, higher-class roads.
+        var normalizedMode = string.Equals(mode, "walking", StringComparison.OrdinalIgnoreCase)
+            ? "walking"
+            : "main-roads";
+        var profile = normalizedMode == "walking" ? "foot-walking" : "driving-car";
+        var preference = normalizedMode == "walking" ? "recommended" : "fastest";
+
         var client = _httpClientFactory.CreateClient();
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
-            "https://api.heigit.org/openrouteservice/v2/directions/foot-walking/geojson");
+            $"https://api.heigit.org/openrouteservice/v2/directions/{profile}/geojson");
 
         request.Headers.TryAddWithoutValidation("Authorization", apiKey);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/geo+json"));
@@ -53,6 +66,7 @@ public class RouteController : ControllerBase
                 new[] { fromLng, fromLat },
                 new[] { toLng, toLat }
             },
+            preference,
             instructions = true,
             language = "en"
         });
@@ -108,6 +122,8 @@ public class RouteController : ControllerBase
 
         return Ok(new WalkingRouteResponse
         {
+            Mode = normalizedMode,
+            Profile = profile,
             DistanceMeters = summary.GetProperty("distance").GetDouble(),
             DurationSeconds = summary.GetProperty("duration").GetDouble(),
             Points = points,
@@ -121,6 +137,8 @@ public class RouteController : ControllerBase
 
 public class WalkingRouteResponse
 {
+    public string Mode { get; set; } = "main-roads";
+    public string Profile { get; set; } = "driving-car";
     public double DistanceMeters { get; set; }
     public double DurationSeconds { get; set; }
     public List<RoutePoint> Points { get; set; } = new();

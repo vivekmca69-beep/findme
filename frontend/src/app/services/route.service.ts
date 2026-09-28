@@ -14,7 +14,11 @@ export interface RouteStep {
   type: number;
 }
 
+export type RoutePreferenceMode = 'main-roads' | 'walking';
+
 export interface WalkingRoute {
+  mode?: RoutePreferenceMode;
+  profile?: string;
   distanceMeters: number;
   durationSeconds: number;
   points: RoutePoint[];
@@ -27,13 +31,25 @@ export class RouteService {
 
   constructor(private http: HttpClient) {}
 
-  walking(fromLat: number, fromLng: number, toLat: number, toLng: number) {
+  preferred(
+    fromLat: number,
+    fromLng: number,
+    toLat: number,
+    toLng: number,
+    mode: RoutePreferenceMode = 'main-roads'
+  ) {
     const params = new HttpParams()
       .set('fromLat', fromLat)
       .set('fromLng', fromLng)
       .set('toLat', toLat)
-      .set('toLng', toLng);
+      .set('toLng', toLng)
+      .set('mode', mode);
 
-    return this.http.get<WalkingRoute>(`${this.api}/walking`, { params });
+    return this.http.get<WalkingRoute>(`${this.api}/preferred`, { params });
+  }
+
+  // Kept as a convenience for any future explicitly pedestrian-only screen.
+  walking(fromLat: number, fromLng: number, toLat: number, toLng: number) {
+    return this.preferred(fromLat, fromLng, toLat, toLng, 'walking');
   }
 }

@@ -244,3 +244,76 @@ body.findme-map-fullscreen-open { overflow:hidden; }
   :host ::ng-deep .maplibregl-ctrl-group button { width:42px!important; height:42px!important; }
   .map-gesture-hint { top:auto; bottom:62px; font-size:9px; }
 }
+
+.route-mode-toggle { position:absolute; top:64px; left:14px; z-index:650; display:flex; gap:3px; padding:4px; border-radius:14px; }
+.route-mode-toggle button { min-height:36px; border:0; border-radius:10px; padding:0 11px; background:transparent; color:#475467; font:inherit; font-size:11px; font-weight:850; cursor:pointer; }
+.route-mode-toggle button.active { background:#4285f4; color:#fff; box-shadow:0 5px 12px rgba(66,133,244,.28); }
+
+@media (max-width: 640px) {
+  .route-mode-toggle { top:56px; left:10px; }
+  .route-mode-toggle button { min-height:34px; padding:0 9px; }
+}
+
+/* V9 action feedback: spinners + duplicate-click protection */
+.btn-spinner,
+.status-spinner {
+  display:inline-block;
+  width:16px;
+  height:16px;
+  flex:0 0 16px;
+  border:2px solid rgba(255,255,255,.42);
+  border-top-color:#fff;
+  border-radius:50%;
+  animation:findme-spin .72s linear infinite;
+  vertical-align:middle;
+}
+.btn-spinner--dark {
+  border-color:rgba(31,41,55,.22);
+  border-top-color:#2563eb;
+}
+.status-spinner {
+  width:12px;
+  height:12px;
+  flex-basis:12px;
+  border-color:rgba(37,99,235,.18);
+  border-top-color:#2563eb;
+}
+@keyframes findme-spin { to { transform:rotate(360deg); } }
+
+.btn[disabled],
+.choice-card[disabled],
+.tool-button[disabled] {
+  cursor:not-allowed!important;
+  opacity:.62;
+  transform:none!important;
+  box-shadow:none!important;
+}
+.btn[aria-busy="true"],
+.choice-card[aria-busy="true"],
+.tool-button[aria-busy="true"] {
+  pointer-events:none;
+}
+.btn {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+}
+.choice-card[aria-busy="true"] .choice-icon,
+.tool-button[aria-busy="true"] > span:first-child {
+  display:grid;
+  place-items:center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-spinner,
+  .status-spinner { animation-duration:1.4s; }
+}
+.route-mode-toggle button:disabled {
+  opacity:.55;
+  cursor:wait;
+}
+.text-input:disabled {
+  opacity:.7;
+  cursor:not-allowed;
+  background:#f3f4f6;
+}

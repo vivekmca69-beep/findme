@@ -2,7 +2,7 @@ import { AfterViewInit, Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ParkingService, SavedParkingLocation } from './services/parking.service';
-import { RouteService, WalkingRoute } from './services/route.service';
+import { RoutePreferenceMode, RouteService, WalkingRoute } from './services/route.service';
 import {
   FriendGroupRoute,
   FriendLocationUpdate,
@@ -70,6 +70,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   distanceText = '';
   durationText = '';
   routeMode = '';
+  routePreferenceMode: RoutePreferenceMode = 'main-roads';
   vehicleNavigationActive = false;
 
   displayName = '';
@@ -108,6 +109,11 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   private lastAutoFitParticipantCount = 0;
   private hasAutoFittedHostRoute = false;
 
+  // UI action guards: asynchronous actions add a key here while they are running.
+  // Buttons bind to these keys so repeated taps cannot send duplicate requests.
+  private busyActions = new Set<string>();
+  private pendingNavigationBusyAction?: string;
+
   constructor(
     private parking: ParkingService,
     private routes: RouteService,
@@ -128,6 +134,36 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
 
   get hasMeetingPoint(): boolean {
     return this.meetingLatitude != null && this.meetingLongitude != null;
+  }
+
+  get isVehicleActionBusy(): boolean {
+    return this.isBusy('saveVehicle') || this.isBusy('findVehicle') || this.isBusy('clearVehicle');
+  }
+
+  get isSessionActionBusy(): boolean {
+    return this.isBusy('createSession') || this.isBusy('joinSession') || this.isBusy('stopSharing');
+  }
+
+  get isRouteProcessing(): boolean {
+    return this.vehicleRouteInFlight || this.navigationRouteInFlight || this.groupRouteInFlight.size > 0;
+  }
+
+  get isAnyActionBusy(): boolean {
+    return this.busyActions.size > 0 || this.isRouteProcessing;
+  }
+
+  isBusy(action: string): boolean {
+    return this.busyActions.has(action);
+  }
+
+  private beginBusy(action: string): boolean {
+    if (this.busyActions.has(action)) return false;
+    this.busyActions.add(action);
+    return true;
+  }
+
+  private endBusy(action: string): void {
+    this.busyActions.delete(action);
   }
 
   ngOnInit(): void {
@@ -153,6 +189,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   saveVehicle(): void {
+    if (!this.beginBusy('saveVehicle')) return;
     this.status = 'Getting your current location...';
     this.clearRouteInfo();
     this.getCurrentPosition().then(pos => {
@@ -168,16 +205,22 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
           this.saveVehicleLocally(saved);
           this.status = 'Vehicle location saved until you replace or clear it.';
           this.showSavedVehicle(payload.latitude, payload.longitude);
+          this.endBusy('saveVehicle');
         },
         error: () => {
           this.status = 'Vehicle saved on this phone. Server sync is temporarily unavailable.';
           this.showSavedVehicle(payload.latitude, payload.longitude);
+          this.endBusy('saveVehicle');
         }
       });
-    }).catch(err => this.status = String(err));
+    }).catch(err => {
+      this.status = String(err);
+      this.endBusy('saveVehicle');
+    });
   }
 
   findVehicle(): void {
+    if (!this.beginBusy('findVehicle')) return;
     this.status = 'Finding your vehicle...';
     this.clearRouteInfo();
 
@@ -196,18 +239,26 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
           this.beginVehicleNavigation(localVehicle);
         } else {
           this.status = 'No saved vehicle location found. Save your vehicle first.';
+          this.endBusy('findVehicle');
         }
       }
     });
   }
 
   clearSavedVehicle(): void {
+    if (!this.beginBusy('clearVehicle')) return;
     this.stopVehicleNavigation(false);
     localStorage.removeItem(this.savedVehicleStorageKey);
     this.clearVehicleMapObjects();
     this.parking.clear(this.deviceId).subscribe({
-      next: () => this.status = 'Saved vehicle location cleared.',
-      error: () => this.status = 'Vehicle cleared on this phone; server cleanup will retry when you save again.'
+      next: () => {
+        this.status = 'Saved vehicle location cleared.';
+        this.endBusy('clearVehicle');
+      },
+      error: () => {
+        this.status = 'Vehicle cleared on this phone; server cleanup will retry when you save again.';
+        this.endBusy('clearVehicle');
+      }
     });
   }
 
@@ -227,6 +278,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     }).catch(err => {
       this.vehicleNavigationActive = false;
       this.status = String(err);
+      this.endBusy('findVehicle');
     });
   }
 
@@ -240,7 +292,10 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.lastVehicleRouteAt = 0;
     this.lastVehicleRouteOrigin = undefined;
     this.vehicleTarget = undefined;
-    if (updateStatus) this.status = 'Vehicle navigation stopped.';
+    if (updateStatus) {
+      this.endBusy('findVehicle');
+      this.status = 'Vehicle navigation stopped.';
+    }
   }
 
   private startVehicleLocationWatch(): void {
@@ -293,14 +348,16 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.lastVehicleRouteAt = now;
     this.lastVehicleRouteOrigin = { latitude, longitude };
 
-    this.routes.walking(
+    this.routes.preferred(
       latitude,
       longitude,
       this.vehicleTarget.latitude,
-      this.vehicleTarget.longitude
+      this.vehicleTarget.longitude,
+      this.routePreferenceMode
     ).subscribe({
       next: route => {
         this.vehicleRouteInFlight = false;
+        if (force) this.endBusy('findVehicle');
         if (!route.points || route.points.length < 2) {
           this.showFallbackLine(latitude, longitude, this.vehicleTarget!.latitude, this.vehicleTarget!.longitude);
           this.routeMode = 'Direct-line fallback';
@@ -310,14 +367,16 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       },
       error: () => {
         this.vehicleRouteInFlight = false;
+        if (force) this.endBusy('findVehicle');
         this.showFallbackLine(latitude, longitude, this.vehicleTarget!.latitude, this.vehicleTarget!.longitude);
-        this.status = 'Walking route is temporarily unavailable. Direct line shown.';
+        this.status = 'Road route is temporarily unavailable. Direct line shown.';
         this.routeMode = 'Direct-line fallback';
       }
     });
   }
 
   createFriendSession(): void {
+    if (!this.beginBusy('createSession')) return;
     const name = this.normalizedName('Host');
     this.status = 'Creating group session...';
     this.friends.create(this.deviceId, name).subscribe({
@@ -333,9 +392,14 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
           this.status = `Session ${result.sessionCode} created. You are the host.`;
         } catch (error) {
           this.status = this.errorMessage(error, 'Could not start live sharing.');
+        } finally {
+          this.endBusy('createSession');
         }
       },
-      error: () => this.status = 'Could not create group session.'
+      error: () => {
+        this.status = 'Could not create group session.';
+        this.endBusy('createSession');
+      }
     });
   }
 
@@ -345,6 +409,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       this.status = 'Enter a valid 6-digit session code.';
       return;
     }
+    if (!this.beginBusy('joinSession')) return;
     const name = this.normalizedName('Guest');
     this.status = 'Joining group session...';
     this.friends.join(code, this.deviceId, name).subscribe({
@@ -359,25 +424,35 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
           this.status = `Joined session ${result.sessionCode}.`;
         } catch (error) {
           this.status = this.errorMessage(error, 'Could not start live sharing.');
+        } finally {
+          this.endBusy('joinSession');
         }
       },
-      error: err => this.status = err?.error?.message ?? 'Could not join this session.'
+      error: err => {
+        this.status = err?.error?.message ?? 'Could not join this session.';
+        this.endBusy('joinSession');
+      }
     });
   }
 
   async stopSharing(): Promise<void> {
+    if (!this.beginBusy('stopSharing')) return;
     this.stopLocationWatch();
     this.stopNavigation();
     this.stopCompass();
     const code = this.activeSessionCode;
     const wasHost = this.isHost;
     this.clearActiveSession();
-    if (code) {
-      try { await this.friends.leave(code, this.deviceId); }
-      catch { await this.friends.disconnect(); }
+    try {
+      if (code) {
+        try { await this.friends.leave(code, this.deviceId); }
+        catch { await this.friends.disconnect(); }
+      }
+      this.resetGroupState();
+      this.status = wasHost ? 'Session closed.' : 'Location sharing stopped.';
+    } finally {
+      this.endBusy('stopSharing');
     }
-    this.resetGroupState();
-    this.status = wasHost ? 'Session closed.' : 'Location sharing stopped.';
   }
 
   async createSmartMeetingPoint(): Promise<void> {
@@ -387,6 +462,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       this.status = 'At least two live GPS positions are required for a meeting point.';
       return;
     }
+    if (!this.beginBusy('meetingPoint')) return;
 
     const latitude = live.reduce((sum, p) => sum + (p.latitude ?? 0), 0) / live.length;
     const longitude = live.reduce((sum, p) => sum + (p.longitude ?? 0), 0) / live.length;
@@ -395,6 +471,8 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       this.status = 'Balanced meeting point shared with the group.';
     } catch (error) {
       this.status = this.errorMessage(error, 'Could not set the meeting point.');
+    } finally {
+      this.endBusy('meetingPoint');
     }
   }
 
@@ -407,6 +485,9 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       this.status = target === 'meeting' ? 'Create a meeting point first.' : 'Waiting for the host GPS.';
       return;
     }
+    const action = target === 'meeting' ? 'navigateMeeting' : 'navigateHost';
+    if (!this.beginBusy(action)) return;
+    this.pendingNavigationBusyAction = action;
     this.navigationTarget = target;
     this.navigationTargetName = target === 'meeting' ? 'Meeting point' : (this.hostParticipant?.displayName || 'Host');
     this.navigationActive = true;
@@ -415,10 +496,14 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.lastNavigationOrigin = undefined;
     this.lastNavigationTarget = undefined;
     this.refreshNavigationRouteIfNeeded(true);
-    this.status = `Live navigation to ${this.navigationTargetName} started.`;
+    this.status = `Calculating route to ${this.navigationTargetName}...`;
   }
 
   stopNavigation(): void {
+    if (this.pendingNavigationBusyAction) {
+      this.endBusy(this.pendingNavigationBusyAction);
+      this.pendingNavigationBusyAction = undefined;
+    }
     this.navigationActive = false;
     this.navigationInstruction = '';
     this.navigationDistanceText = '';
@@ -439,27 +524,61 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
 
-    this.navigationTarget = target;
-    this.compassTargetName = target === 'meeting' ? 'Meeting point' : (this.hostParticipant?.displayName || 'Host');
+    const action = target === 'meeting' ? 'compassMeeting' : 'compassHost';
+    if (!this.beginBusy(action)) return;
+    try {
+      this.navigationTarget = target;
+      this.compassTargetName = target === 'meeting' ? 'Meeting point' : (this.hostParticipant?.displayName || 'Host');
 
-    const orientationCtor = DeviceOrientationEvent as any;
-    if (typeof orientationCtor.requestPermission === 'function') {
-      const permission = await orientationCtor.requestPermission();
-      if (permission !== 'granted') {
-        this.status = 'Compass permission was not granted.';
-        return;
+      const orientationCtor = DeviceOrientationEvent as any;
+      if (typeof orientationCtor.requestPermission === 'function') {
+        const permission = await orientationCtor.requestPermission();
+        if (permission !== 'granted') {
+          this.status = 'Compass permission was not granted.';
+          return;
+        }
       }
-    }
 
-    this.stopCompass();
-    window.addEventListener('deviceorientation', this.orientationHandler, true);
-    this.compassActive = true;
-    this.updateCompassTarget();
-    this.status = `Compass pointing to ${this.compassTargetName}.`;
+      this.stopCompass();
+      window.addEventListener('deviceorientation', this.orientationHandler, true);
+      this.compassActive = true;
+      this.updateCompassTarget();
+      this.status = `Compass pointing to ${this.compassTargetName}.`;
+    } finally {
+      this.endBusy(action);
+    }
   }
 
   recenterOnMe(): void {
     if (this.latestOwnLocation) this.map?.setView([this.latestOwnLocation.latitude, this.latestOwnLocation.longitude], 18);
+  }
+
+  setRoutePreferenceMode(mode: RoutePreferenceMode): void {
+    if (this.routePreferenceMode === mode) return;
+    this.routePreferenceMode = mode;
+
+    // Immediately re-route active personal navigation using the selected profile.
+    this.lastVehicleRouteAt = 0;
+    this.lastNavigationRouteAt = 0;
+    if (this.vehicleNavigationActive && this.latestOwnLocation) {
+      this.refreshVehicleRoute(this.latestOwnLocation.latitude, this.latestOwnLocation.longitude, true);
+    }
+    if (this.navigationActive) this.refreshNavigationRouteIfNeeded(true);
+
+    // The host owns shared group road routes. Clear its local cache so it
+    // republishes the group network using the newly selected route profile.
+    if (this.isHost) {
+      for (const line of this.groupRouteLines.values()) line.remove();
+      for (const line of this.groupRouteCasings.values()) line.remove();
+      this.groupRouteLines.clear();
+      this.groupRouteCasings.clear();
+      this.groupRouteState.clear();
+      this.refreshGroupRoadRoutesIfNeeded();
+    }
+
+    this.status = mode === 'main-roads'
+      ? 'Main-roads routing selected.'
+      : 'Walking routing selected.';
   }
 
   setMapMode(mode: 'street' | 'satellite'): void {
@@ -770,7 +889,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     let casing = this.groupRouteCasings.get(route.targetDeviceId);
     if (!casing) {
       casing = L.polyline(points, {
-        color: '#ffffff', weight: 9, opacity: 0.94, lineCap: 'round', lineJoin: 'round', interactive: false
+        color: '#1d4ed8', weight: 10, opacity: 0.45, lineCap: 'round', lineJoin: 'round', interactive: false
       }).addTo(this.map);
       this.groupRouteCasings.set(route.targetDeviceId, casing);
     } else {
@@ -780,7 +899,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     let line = this.groupRouteLines.get(route.targetDeviceId);
     if (!line) {
       line = L.polyline(points, {
-        color: '#7c3aed', weight: 5, opacity: 0.94, lineCap: 'round', lineJoin: 'round', interactive: false
+        color: '#4285f4', weight: 6, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false
       }).addTo(this.map);
       this.groupRouteLines.set(route.targetDeviceId, line);
     } else {
@@ -826,7 +945,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       const toLatitude = participant.latitude;
       const toLongitude = participant.longitude;
 
-      this.routes.walking(fromLatitude, fromLongitude, toLatitude, toLongitude).subscribe({
+      this.routes.preferred(fromLatitude, fromLongitude, toLatitude, toLongitude, this.routePreferenceMode).subscribe({
         next: route => {
           this.groupRouteInFlight.delete(participant.deviceId);
           if (!route.points?.length) return;
@@ -915,7 +1034,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.hostWalkingRouteLine = undefined;
     this.hostWalkingDistanceText = this.formatDistance(route.distanceMeters);
     this.hostWalkingDurationText = this.formatDuration(route.durationSeconds);
-    this.hostRouteMode = 'Shared walking route to host';
+    this.hostRouteMode = 'Shared road route to host';
   }
 
   private refreshNavigationRouteIfNeeded(force = false): void {
@@ -937,22 +1056,30 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.lastNavigationOrigin = { ...this.latestOwnLocation };
     this.lastNavigationTarget = { ...target };
 
-    this.routes.walking(this.latestOwnLocation.latitude, this.latestOwnLocation.longitude, target.latitude, target.longitude).subscribe({
+    this.routes.preferred(this.latestOwnLocation.latitude, this.latestOwnLocation.longitude, target.latitude, target.longitude, this.routePreferenceMode).subscribe({
       next: route => {
         this.navigationRouteInFlight = false;
+        if (this.pendingNavigationBusyAction) {
+          this.endBusy(this.pendingNavigationBusyAction);
+          this.pendingNavigationBusyAction = undefined;
+        }
         if (!this.map || !route.points?.length) return;
         this.hostWalkingRouteLine?.remove();
         this.navigationRouteLine?.remove();
-        this.navigationRouteLine = L.polyline(route.points.map(x => L.latLng(x.latitude, x.longitude)), { color: '#2563eb', weight: 8, opacity: 0.96, lineCap: 'round', lineJoin: 'round' }).addTo(this.map);
+        this.navigationRouteLine = L.polyline(route.points.map(x => L.latLng(x.latitude, x.longitude)), { color: '#4285f4', weight: 8, opacity: 1, lineCap: 'round', lineJoin: 'round' }).addTo(this.map);
         this.navigationDistanceText = this.formatDistance(route.distanceMeters);
         this.navigationDurationText = this.formatDuration(route.durationSeconds);
         const nextStep = route.steps?.find(step => step.instruction?.trim());
-        this.navigationInstruction = nextStep?.instruction || 'Follow the highlighted walking route';
+        this.navigationInstruction = nextStep?.instruction || 'Follow the highlighted route';
         this.navigationStepDistanceText = nextStep ? this.formatDistance(nextStep.distanceMeters) : '';
         this.status = `Navigating to ${this.navigationTargetName}.`;
       },
       error: () => {
         this.navigationRouteInFlight = false;
+        if (this.pendingNavigationBusyAction) {
+          this.endBusy(this.pendingNavigationBusyAction);
+          this.pendingNavigationBusyAction = undefined;
+        }
         this.navigationInstruction = 'Route temporarily unavailable. Keep moving toward the target marker.';
       }
     });
@@ -1159,16 +1286,16 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
 
     // White casing + blue route makes the path visible on both street and satellite maps.
     this.vehicleRouteCasingLine = L.polyline(latLngs, {
-      color: '#ffffff',
+      color: '#1d4ed8',
       weight: 11,
-      opacity: 0.95,
+      opacity: 0.42,
       lineCap: 'round',
       lineJoin: 'round',
       interactive: false
     }).addTo(this.map);
 
     this.routeLine = L.polyline(latLngs, {
-      color: '#2563eb',
+      color: '#4285f4',
       weight: 7,
       opacity: 1,
       lineCap: 'round',
@@ -1187,8 +1314,8 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
 
     this.distanceText = this.formatDistance(route.distanceMeters);
     this.durationText = this.formatDuration(route.durationSeconds);
-    this.routeMode = 'Live walking route';
-    this.status = 'Live walking route to your vehicle is active.';
+    this.routeMode = this.routePreferenceMode === 'main-roads' ? 'Main roads' : 'Walking';
+    this.status = this.routePreferenceMode === 'main-roads' ? 'Main-road route to your vehicle is active.' : 'Walking route to your vehicle is active.';
   }
 
   private showFallbackLine(curLat: number, curLng: number, vehLat: number, vehLng: number): void {

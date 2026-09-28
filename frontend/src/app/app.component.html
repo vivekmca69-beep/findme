@@ -8,7 +8,7 @@
       </div>
       <span class="privacy-pill">Private group</span>
     </div>
-    <p class="hero-copy">Live group tracking, walking navigation, compass guidance, smart meeting points and vehicle recovery.</p>
+    <p class="hero-copy">Live group tracking, road navigation, compass guidance, smart meeting points and vehicle recovery.</p>
   </header>
 
   <section class="map-stage" [class.map-stage--fullscreen]="isMapFullscreen" [class.map-stage--has-session]="isSharing">
@@ -19,10 +19,16 @@
       <button type="button" [class.active]="mapMode === 'satellite'" (click)="setMapMode('satellite')">Satellite</button>
     </div>
 
+    <div class="route-mode-toggle glass" role="group" aria-label="Route preference">
+      <button type="button" [class.active]="routePreferenceMode === 'main-roads'" (click)="setRoutePreferenceMode('main-roads')" [disabled]="isRouteProcessing">Main roads</button>
+      <button type="button" [class.active]="routePreferenceMode === 'walking'" (click)="setRoutePreferenceMode('walking')" [disabled]="isRouteProcessing">Walking</button>
+    </div>
+
     <div class="map-gesture-hint">Pinch to zoom · twist 2 fingers to rotate · drag 2 fingers to tilt</div>
 
-    <div class="map-status glass" aria-live="polite">
-      <span class="status-dot" [class.live]="isSharing"></span>
+    <div class="map-status glass" aria-live="polite" [attr.aria-busy]="isAnyActionBusy">
+      <span class="status-spinner" *ngIf="isAnyActionBusy" aria-hidden="true"></span>
+      <span class="status-dot" *ngIf="!isAnyActionBusy" [class.live]="isSharing"></span>
       <span>{{ status }}</span>
     </div>
 
@@ -72,17 +78,29 @@
         <div class="icon-orb">🚗</div>
         <div><span class="micro-label">Parking</span><h2>My Vehicle</h2></div>
       </div>
-      <p>Drop a parking pin now and get a walking route back later.</p>
+      <p>Drop a parking pin now and get a main-road route back later. Switch to Walking when needed.</p>
       <div class="button-row">
-        <button class="btn btn-primary" type="button" (click)="saveVehicle()"><span>＋</span> Save location</button>
-        <button class="btn btn-soft" type="button" (click)="findVehicle()"><span>⌖</span> {{ vehicleNavigationActive ? 'Refresh route' : 'Find vehicle' }}</button>
+        <button class="btn btn-primary" type="button" (click)="saveVehicle()" [disabled]="isVehicleActionBusy" [attr.aria-busy]="isBusy('saveVehicle')">
+          <span class="btn-spinner" *ngIf="isBusy('saveVehicle')" aria-hidden="true"></span>
+          <span *ngIf="!isBusy('saveVehicle')">＋</span>
+          {{ isBusy('saveVehicle') ? 'Saving…' : 'Save location' }}
+        </button>
+        <button class="btn btn-soft" type="button" (click)="findVehicle()" [disabled]="isVehicleActionBusy" [attr.aria-busy]="isBusy('findVehicle')">
+          <span class="btn-spinner" *ngIf="isBusy('findVehicle')" aria-hidden="true"></span>
+          <span *ngIf="!isBusy('findVehicle')">⌖</span>
+          {{ isBusy('findVehicle') ? 'Finding route…' : (vehicleNavigationActive ? 'Refresh route' : 'Find vehicle') }}
+        </button>
         <button class="btn btn-danger" type="button" *ngIf="vehicleNavigationActive" (click)="stopVehicleNavigation()"><span>■</span> Stop navigation</button>
-        <button class="btn btn-soft" type="button" (click)="clearSavedVehicle()"><span>×</span> Clear saved vehicle</button>
+        <button class="btn btn-soft" type="button" (click)="clearSavedVehicle()" [disabled]="isVehicleActionBusy" [attr.aria-busy]="isBusy('clearVehicle')">
+          <span class="btn-spinner" *ngIf="isBusy('clearVehicle')" aria-hidden="true"></span>
+          <span *ngIf="!isBusy('clearVehicle')">×</span>
+          {{ isBusy('clearVehicle') ? 'Clearing…' : 'Clear saved vehicle' }}
+        </button>
       </div>
       <div class="metric-strip" *ngIf="routeMode">
         <div><span>Mode</span><strong>{{ routeMode }}</strong></div>
         <div *ngIf="distanceText"><span>Distance</span><strong>{{ distanceText }}</strong></div>
-        <div *ngIf="durationText"><span>Walk</span><strong>{{ durationText }}</strong></div>
+        <div *ngIf="durationText"><span>ETA</span><strong>{{ durationText }}</strong></div>
       </div>
     </article>
 
@@ -95,20 +113,26 @@
 
       <ng-container *ngIf="!isSharing; else activeSession">
         <label class="field-label" for="displayName">Your name</label>
-        <input id="displayName" class="text-input" [(ngModel)]="displayName" maxlength="40" placeholder="e.g. Rahul">
+        <input id="displayName" class="text-input" [(ngModel)]="displayName" maxlength="40" placeholder="e.g. Rahul" [disabled]="isSessionActionBusy">
 
         <div class="friend-actions">
-          <button class="choice-card" type="button" (click)="createFriendSession()">
-            <span class="choice-icon">＋</span>
-            <span><strong>Create group</strong><small>You become the host. Up to {{ maxParticipants }} people can join.</small></span>
-            <span class="arrow">→</span>
+          <button class="choice-card" type="button" (click)="createFriendSession()" [disabled]="isSessionActionBusy" [attr.aria-busy]="isBusy('createSession')">
+            <span class="choice-icon">
+              <span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('createSession')" aria-hidden="true"></span>
+              <ng-container *ngIf="!isBusy('createSession')">＋</ng-container>
+            </span>
+            <span><strong>{{ isBusy('createSession') ? 'Creating group…' : 'Create group' }}</strong><small>You become the host. Up to {{ maxParticipants }} people can join.</small></span>
+            <span class="arrow" *ngIf="!isBusy('createSession')">→</span>
           </button>
 
           <div class="join-box">
             <div><strong>Join a group</strong><small>Enter the host's 6-digit code</small></div>
             <div class="join-row">
-              <input id="joinCode" class="text-input code-input" [(ngModel)]="joinCode" inputmode="numeric" maxlength="6" placeholder="000000">
-              <button class="btn btn-primary compact" type="button" (click)="joinFriendSession()">Join</button>
+              <input id="joinCode" class="text-input code-input" [(ngModel)]="joinCode" inputmode="numeric" maxlength="6" placeholder="000000" [disabled]="isSessionActionBusy">
+              <button class="btn btn-primary compact" type="button" (click)="joinFriendSession()" [disabled]="isSessionActionBusy" [attr.aria-busy]="isBusy('joinSession')">
+                <span class="btn-spinner" *ngIf="isBusy('joinSession')" aria-hidden="true"></span>
+                {{ isBusy('joinSession') ? 'Joining…' : 'Join' }}
+              </button>
             </div>
           </div>
         </div>
@@ -124,20 +148,25 @@
         </div>
 
         <div class="advanced-actions">
-          <button class="tool-button" type="button" *ngIf="!isHost" (click)="startNavigation('host')">
-            <span>🧭</span><strong>Navigate to host</strong><small>Live walking guidance</small>
+          <button class="tool-button" type="button" *ngIf="!isHost" (click)="startNavigation('host')" [disabled]="isBusy('navigateHost')" [attr.aria-busy]="isBusy('navigateHost')">
+            <span><span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('navigateHost')" aria-hidden="true"></span><ng-container *ngIf="!isBusy('navigateHost')">🧭</ng-container></span>
+            <strong>{{ isBusy('navigateHost') ? 'Calculating route…' : 'Navigate to host' }}</strong><small>Live walking guidance</small>
           </button>
-          <button class="tool-button" type="button" *ngIf="!isHost" (click)="toggleCompass('host')">
-            <span>↑</span><strong>Compass to host</strong><small>Direct bearing</small>
+          <button class="tool-button" type="button" *ngIf="!isHost" (click)="toggleCompass('host')" [disabled]="isBusy('compassHost')" [attr.aria-busy]="isBusy('compassHost')">
+            <span><span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('compassHost')" aria-hidden="true"></span><ng-container *ngIf="!isBusy('compassHost')">↑</ng-container></span>
+            <strong>{{ isBusy('compassHost') ? 'Starting compass…' : 'Compass to host' }}</strong><small>Direct bearing</small>
           </button>
-          <button class="tool-button" type="button" *ngIf="isHost" (click)="createSmartMeetingPoint()">
-            <span>📍</span><strong>Smart meeting point</strong><small>Balanced center of live members</small>
+          <button class="tool-button" type="button" *ngIf="isHost" (click)="createSmartMeetingPoint()" [disabled]="isBusy('meetingPoint')" [attr.aria-busy]="isBusy('meetingPoint')">
+            <span><span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('meetingPoint')" aria-hidden="true"></span><ng-container *ngIf="!isBusy('meetingPoint')">📍</ng-container></span>
+            <strong>{{ isBusy('meetingPoint') ? 'Creating point…' : 'Smart meeting point' }}</strong><small>Balanced center of live members</small>
           </button>
-          <button class="tool-button" type="button" *ngIf="hasMeetingPoint" (click)="startNavigation('meeting')">
-            <span>🚶</span><strong>Navigate to meeting point</strong><small>Shared by the host</small>
+          <button class="tool-button" type="button" *ngIf="hasMeetingPoint" (click)="startNavigation('meeting')" [disabled]="isBusy('navigateMeeting')" [attr.aria-busy]="isBusy('navigateMeeting')">
+            <span><span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('navigateMeeting')" aria-hidden="true"></span><ng-container *ngIf="!isBusy('navigateMeeting')">🧭</ng-container></span>
+            <strong>{{ isBusy('navigateMeeting') ? 'Calculating route…' : 'Navigate to meeting point' }}</strong><small>Uses selected route mode</small>
           </button>
-          <button class="tool-button" type="button" *ngIf="hasMeetingPoint" (click)="toggleCompass('meeting')">
-            <span>🧭</span><strong>Compass to meeting point</strong><small>{{ compassActive && navigationTarget === 'meeting' ? 'Stop compass' : 'Direct bearing' }}</small>
+          <button class="tool-button" type="button" *ngIf="hasMeetingPoint" (click)="toggleCompass('meeting')" [disabled]="isBusy('compassMeeting')" [attr.aria-busy]="isBusy('compassMeeting')">
+            <span><span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('compassMeeting')" aria-hidden="true"></span><ng-container *ngIf="!isBusy('compassMeeting')">🧭</ng-container></span>
+            <strong>{{ isBusy('compassMeeting') ? 'Starting compass…' : 'Compass to meeting point' }}</strong><small>{{ compassActive && navigationTarget === 'meeting' ? 'Stop compass' : 'Direct bearing' }}</small>
           </button>
         </div>
 
@@ -168,8 +197,8 @@
 
         <div class="session-metrics" *ngIf="!isHost">
           <div><span>Route target</span><strong>{{ hostParticipant?.displayName || 'Host' }}</strong></div>
-          <div><span>Walking distance</span><strong>{{ hostWalkingDistanceText || '—' }}</strong></div>
-          <div><span>Estimated walk</span><strong>{{ hostWalkingDurationText || '—' }}</strong></div>
+          <div><span>Route distance</span><strong>{{ hostWalkingDistanceText || '—' }}</strong></div>
+          <div><span>ETA</span><strong>{{ hostWalkingDurationText || '—' }}</strong></div>
           <div><span>Route</span><strong>{{ hostRouteMode || 'Waiting for GPS' }}</strong></div>
         </div>
 
@@ -178,8 +207,9 @@
           <span>Live = updated within 15 seconds, Recent = within 60 seconds, Offline = no update for more than a minute.</span>
         </div>
 
-        <button class="btn btn-danger" type="button" (click)="stopSharing()">
-          {{ isHost ? 'End group session' : 'Leave group' }}
+        <button class="btn btn-danger" type="button" (click)="stopSharing()" [disabled]="isSessionActionBusy" [attr.aria-busy]="isBusy('stopSharing')">
+          <span class="btn-spinner" *ngIf="isBusy('stopSharing')" aria-hidden="true"></span>
+          {{ isBusy('stopSharing') ? (isHost ? 'Ending session…' : 'Leaving…') : (isHost ? 'End group session' : 'Leave group') }}
         </button>
       </ng-template>
     </article>
