@@ -8,7 +8,7 @@
       </div>
       <span class="privacy-pill"><i></i> Private</span>
     </div>
-    <p class="hero-copy">Find your vehicle, navigate anywhere and stay connected with your group.</p>
+    <p class="hero-copy">Find your vehicle and stay connected with your group.</p>
   </header>
 
   <section class="map-stage"
@@ -18,20 +18,7 @@
            [class.map-stage--vehicle-directions]="vehicleDirectionsStarted">
     <div id="map" class="map" aria-label="Map showing your location, routes, vehicle and connected people"></div>
 
-    <!-- Google Places destination search. Hidden during active turn-by-turn guidance. -->
-    <div class="destination-search-wrap" *ngIf="!vehicleDirectionsStarted">
-      <div class="destination-search-card">
-        <span class="destination-search-icon" aria-hidden="true">⌕</span>
-        <div id="destination-search-host" class="destination-search-host">
-          <span class="destination-search-loading">Loading destination search…</span>
-        </div>
-      </div>
-      <div class="destination-search-error" *ngIf="destinationSearchError">
-        {{ destinationSearchError }}
-      </div>
-    </div>
-
-    <div class="map-top-stack" [class.map-top-stack--with-search]="!vehicleDirectionsStarted">
+    <div class="map-top-stack">
       <div class="map-type-toggle glass" role="group" aria-label="Map view">
         <button type="button" [class.active]="mapMode === 'street'" (click)="setMapMode('street')">Map</button>
         <button type="button" [class.active]="mapMode === 'satellite'" (click)="setMapMode('satellite')">Satellite</button>
@@ -65,7 +52,7 @@
       Route availability can vary for Walk, Bicycle and Two-wheeler modes.
     </div>
 
-    <div class="map-status glass" *ngIf="!vehicleNavigationActive && !vehicleDirectionsStarted" aria-live="polite" [attr.aria-busy]="isAnyActionBusy">
+    <div class="map-status glass" *ngIf="!vehicleNavigationActive && !vehicleDirectionsStarted && (!isMapFullscreen || status !== 'Map ready')" aria-live="polite" [attr.aria-busy]="isAnyActionBusy">
       <span class="status-spinner" *ngIf="isAnyActionBusy" aria-hidden="true"></span>
       <span class="status-dot" *ngIf="!isAnyActionBusy" [class.live]="isSharing"></span>
       <span>{{ status }}</span>
@@ -83,9 +70,9 @@
       <div class="route-preview-handle" aria-hidden="true"></div>
 
       <div class="route-target-row">
-        <div class="route-target-icon">{{ routeTargetKind === 'vehicle' ? '🚗' : '📍' }}</div>
+        <div class="route-target-icon">🚗</div>
         <div class="route-target-copy">
-          <span class="route-preview-label">{{ routeTargetKind === 'vehicle' ? 'PARKED VEHICLE' : 'DESTINATION' }}</span>
+          <span class="route-preview-label">PARKED VEHICLE</span>
           <strong>{{ routeTargetName }}</strong>
           <small *ngIf="routeTargetAddress">{{ routeTargetAddress }}</small>
         </div>
@@ -217,7 +204,7 @@
         </button>
       </div>
 
-      <div class="metric-strip" *ngIf="routeTargetKind === 'vehicle' && routeMode">
+      <div class="metric-strip" *ngIf="routeMode">
         <div><span>Mode</span><strong>{{ routeMode }}</strong></div>
         <div *ngIf="distanceText"><span>Remaining</span><strong>{{ distanceText }}</strong></div>
         <div *ngIf="durationText"><span>ETA</span><strong>{{ durationText }}</strong></div>

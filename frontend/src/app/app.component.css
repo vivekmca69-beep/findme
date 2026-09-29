@@ -908,7 +908,7 @@ body.findme-vehicle-directions-open {
 
 /* ==============================================================
    V14 PREMIUM NAVIGATION
-   - destination search
+   - clean vehicle-only navigation
    - route alternatives
    - safer parking actions
    - follow camera / rerouting status
@@ -955,79 +955,11 @@ body.findme-vehicle-directions-open {
 }
 .map { height:min(60vh,620px); min-height:430px; }
 
-.destination-search-wrap {
-  position:absolute;
-  top:14px;
-  left:50%;
-  transform:translateX(-50%);
-  z-index:760;
-  width:min(600px,calc(100% - 150px));
-  pointer-events:none;
-}
-.destination-search-card {
-  min-height:54px;
-  display:grid;
-  grid-template-columns:32px minmax(0,1fr);
-  align-items:center;
-  gap:4px;
-  padding:5px 8px 5px 12px;
-  border:1px solid rgba(255,255,255,.92);
-  border-radius:18px;
-  background:rgba(255,255,255,.97);
-  box-shadow:0 14px 36px rgba(15,23,42,.19);
-  backdrop-filter:blur(18px);
-  -webkit-backdrop-filter:blur(18px);
-  pointer-events:auto;
-}
-.destination-search-icon {
-  width:30px;
-  height:30px;
-  display:grid;
-  place-items:center;
-  color:#344054;
-  font-size:25px;
-  line-height:1;
-  transform:rotate(-15deg);
-}
-.destination-search-host {
-  min-width:0;
-  width:100%;
-  overflow:visible;
-}
-.destination-search-loading {
-  color:#98a2b3;
-  font-size:13px;
-  font-weight:700;
-}
-:host ::ng-deep .destination-search-host gmp-place-autocomplete,
-:host ::ng-deep .destination-search-host .findme-place-autocomplete {
-  width:100%!important;
-  min-width:0!important;
-  border:0!important;
-  background:transparent!important;
-  font-family:inherit!important;
-}
-.destination-search-error {
-  width:max-content;
-  max-width:100%;
-  margin:7px auto 0;
-  padding:7px 10px;
-  border-radius:10px;
-  background:rgba(180,35,24,.92);
-  color:#fff;
-  font-size:10px;
-  font-weight:750;
-  box-shadow:0 8px 22px rgba(180,35,24,.18);
-  pointer-events:auto;
-}
 
-.map-top-stack--with-search {
-  top:82px!important;
-}
 .map-control-stack {
-  top:82px!important;
+  top:14px!important;
 }
-.map-stage--has-session .map-control-stack { top:82px!important; }
+.map-stage--has-session .map-control-stack { top:14px!important; }
 .map-stage--has-session .session-float { margin-top:0; }
 .google-route-warning { top:auto; }
 
@@ -1307,25 +1239,12 @@ body.findme-vehicle-directions-open {
 }
 .confirm-actions .btn-danger { margin:0; }
 
-.map-stage--vehicle-directions .destination-search-wrap { display:none!important; }
 .map-stage--vehicle-directions .route-alternatives { display:none!important; }
 
 @media (max-width:700px) {
   .map { min-height:470px; height:60vh; }
-  .destination-search-wrap {
-    top:10px;
-    width:calc(100% - 78px);
-    left:10px;
-    transform:none;
-  }
-  .destination-search-card {
-    min-height:50px;
-    border-radius:16px;
-    padding-left:9px;
-  }
-  .map-top-stack--with-search { top:70px!important; left:10px!important; }
-  .map-control-stack { top:70px!important; right:10px!important; }
-  .map-stage--has-session .map-control-stack { top:70px!important; }
+  .map-control-stack { top:10px!important; right:10px!important; }
+  .map-stage--has-session .map-control-stack { top:10px!important; }
   .map-top-stack { max-width:calc(100% - 64px)!important; }
   .route-mode-toggle { max-width:calc(100vw - 92px); overflow-x:auto; scrollbar-width:none; }
   .route-mode-toggle::-webkit-scrollbar { display:none; }
@@ -1342,7 +1261,6 @@ body.findme-vehicle-directions-open {
 
 @media (max-width:430px) {
   .map { min-height:500px; height:64vh; }
-  .destination-search-wrap { width:calc(100% - 66px); }
   .route-target-copy > strong { font-size:14px; }
   .route-primary-summary > div > strong { font-size:24px; }
   .route-start-button { min-width:88px; padding:0 14px; }
@@ -1350,4 +1268,130 @@ body.findme-vehicle-directions-open {
   .vehicle-guidance-card { box-shadow:0 16px 36px rgba(15,23,42,.30); }
   .reroute-pill { top:calc(max(8px, env(safe-area-inset-top)) + 102px); }
   .confirm-actions { grid-template-columns:1fr; }
+}
+
+
+/* V15 clean map surface -----------------------------------------------------
+   Destination search was intentionally removed. Fullscreen controls use one
+   predictable grid with safe-area spacing so controls never overlap. */
+.map-top-stack {
+  top:14px!important;
+  left:14px!important;
+  right:84px;
+  max-width:none!important;
+  width:auto;
+  gap:9px;
+}
+
+.map-control-stack,
+.map-stage--has-session .map-control-stack,
+.map-stage--fullscreen .map-control-stack,
+.map-stage--fullscreen.map-stage--has-session .map-control-stack {
+  top:14px!important;
+  right:14px!important;
+}
+
+.map-stage--fullscreen .map-top-stack {
+  top:calc(12px + env(safe-area-inset-top))!important;
+  left:12px!important;
+  right:76px!important;
+  gap:8px;
+}
+
+.map-stage--fullscreen .map-control-stack,
+.map-stage--fullscreen.map-stage--has-session .map-control-stack {
+  top:calc(12px + env(safe-area-inset-top))!important;
+  right:12px!important;
+}
+
+.map-stage--fullscreen .map-type-toggle {
+  min-height:44px;
+  padding:4px;
+  border-radius:15px;
+  background:rgba(255,255,255,.96);
+  box-shadow:0 10px 28px rgba(15,23,42,.16);
+}
+
+.map-stage--fullscreen .route-mode-toggle {
+  width:min(430px,100%);
+  max-width:100%;
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:4px;
+  padding:4px;
+  overflow:visible;
+  border-radius:17px;
+  background:rgba(255,255,255,.96);
+  box-shadow:0 10px 28px rgba(15,23,42,.16);
+}
+
+.map-stage--fullscreen .route-mode-toggle button {
+  min-width:0;
+  width:100%;
+  min-height:52px;
+  padding:5px 7px;
+}
+
+.map-stage--fullscreen .session-float {
+  max-width:min(430px,100%);
+  box-shadow:0 10px 28px rgba(15,23,42,.16);
+}
+
+.map-stage--fullscreen .map-status {
+  bottom:calc(12px + env(safe-area-inset-bottom));
+}
+
+@media (max-width:600px) {
+  .map-top-stack {
+    top:10px!important;
+    left:10px!important;
+    right:68px!important;
+    gap:7px;
+  }
+
+  .map-control-stack,
+  .map-stage--has-session .map-control-stack {
+    top:10px!important;
+    right:10px!important;
+  }
+
+  .map-stage--fullscreen .map-top-stack {
+    top:calc(10px + env(safe-area-inset-top))!important;
+    left:10px!important;
+    right:68px!important;
+  }
+
+  .map-stage--fullscreen .map-control-stack,
+  .map-stage--fullscreen.map-stage--has-session .map-control-stack {
+    top:calc(10px + env(safe-area-inset-top))!important;
+    right:10px!important;
+  }
+
+  .map-stage--fullscreen .route-mode-toggle {
+    width:100%;
+  }
+
+  .map-stage--fullscreen .route-mode-toggle button {
+    min-width:0;
+    min-height:50px;
+    padding:4px 5px;
+  }
+
+  .map-stage--fullscreen .route-mode-toggle button span:last-child {
+    font-size:9px;
+    white-space:nowrap;
+  }
+}
+
+@media (max-width:390px) {
+  .map-stage--fullscreen .map-top-stack {
+    right:64px!important;
+  }
+  .map-stage--fullscreen .route-mode-toggle button {
+    padding-left:3px;
+    padding-right:3px;
+  }
+  .map-stage--fullscreen .route-mode-toggle .travel-icon {
+    font-size:16px;
+  }
 }

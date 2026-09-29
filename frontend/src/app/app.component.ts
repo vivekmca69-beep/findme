@@ -35,7 +35,6 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   private satelliteLabelsLayer?: L.TileLayer;
   private currentMarker?: L.CircleMarker;
   private vehicleMarker?: L.CircleMarker;
-  private destinationMarker?: L.CircleMarker;
   private routeLine?: L.Polyline;
   private alternativeRouteLines: L.Polyline[] = [];
   private fallbackLine?: L.Polyline;
@@ -87,15 +86,11 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   private hasVehicleRouteAutoFit = false;
   private bodyOverflowBeforeVehicleDirections = '';
 
-  // Premium personal navigation state. The same routing engine is used for the
-  // saved vehicle and for a searched destination, while parking persistence stays independent.
-  routeTargetKind: 'vehicle' | 'destination' = 'vehicle';
+  // Premium saved-vehicle navigation state.
   routeTargetName = 'Saved vehicle';
   routeTargetAddress = '';
   routeAlternatives: WalkingRoute[] = [];
   selectedRouteIndex = 0;
-  destinationSearchReady = false;
-  destinationSearchError = '';
   savedVehicleExists = false;
   clearVehicleConfirmOpen = false;
   navigationCameraFollow = false;
@@ -207,7 +202,6 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     window.setTimeout(() => {
       this.initMap(20.5937, 78.9629, 5);
       this.map?.invalidateSize();
-      void this.initDestinationSearch();
     }, 0);
   }
 
@@ -238,17 +232,13 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
           this.saveVehicleLocally(saved);
           this.savedVehicleExists = true;
           this.status = 'Vehicle location saved until you replace or clear it.';
-          if (!this.vehicleNavigationActive || this.routeTargetKind === 'vehicle') {
-            this.showSavedVehicle(payload.latitude, payload.longitude);
-          }
+          this.showSavedVehicle(payload.latitude, payload.longitude);
           this.endBusy('saveVehicle');
         },
         error: () => {
           this.savedVehicleExists = true;
           this.status = 'Vehicle saved on this phone. Server sync is temporarily unavailable.';
-          if (!this.vehicleNavigationActive || this.routeTargetKind === 'vehicle') {
-            this.showSavedVehicle(payload.latitude, payload.longitude);
-          }
+          this.showSavedVehicle(payload.latitude, payload.longitude);
           this.endBusy('saveVehicle');
         }
       });
@@ -306,9 +296,8 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!this.beginBusy('clearVehicle')) return;
     this.clearVehicleConfirmOpen = false;
 
-    // Removing a parking record must not unexpectedly cancel navigation to an
-    // unrelated searched destination.
-    if (this.vehicleNavigationActive && this.routeTargetKind === 'vehicle') {
+    // If the user is currently navigating to the saved vehicle, stop that route first.
+    if (this.vehicleNavigationActive) {
       this.stopVehicleNavigation(false);
     }
 
@@ -333,39 +322,19 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.beginPersonalNavigation(
       vehicle.latitude,
       vehicle.longitude,
-      'vehicle',
       'Saved vehicle',
       ''
-    );
-  }
-
-  private beginDestinationNavigation(place: L.PlaceSearchResult): void {
-    // Stop only the active personal route. This never touches the saved parking record.
-    this.endBusy('findVehicle');
-    this.stopVehicleNavigation(false);
-    this.clearRouteInfo();
-    this.routeTargetKind = 'destination';
-    this.routeTargetName = place.name || 'Destination';
-    this.routeTargetAddress = place.address || '';
-    this.beginPersonalNavigation(
-      place.latitude,
-      place.longitude,
-      'destination',
-      this.routeTargetName,
-      this.routeTargetAddress
     );
   }
 
   private beginPersonalNavigation(
     latitude: number,
     longitude: number,
-    kind: 'vehicle' | 'destination',
     name: string,
     address: string
   ): void {
     this.personalRouteRequestToken += 1;
     this.vehicleTarget = { latitude, longitude };
-    this.routeTargetKind = kind;
     this.routeTargetName = name;
     this.routeTargetAddress = address;
     this.vehicleNavigationActive = true;
@@ -621,29 +590,6 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   private clearAlternativeRoutes(): void {
     this.alternativeRouteLines.forEach(line => line.remove());
     this.alternativeRouteLines = [];
-  }
-
-  private async initDestinationSearch(): Promise<void> {
-    this.destinationSearchError = '';
-    try {
-      await L.createPlaceAutocomplete(
-        'destination-search-host',
-        place => {
-          this.destinationSearchReady = true;
-          this.destinationSearchError = '';
-          this.status = `Opening routes to ${place.name}...`;
-          this.beginDestinationNavigation(place);
-        },
-        message => {
-          this.destinationSearchReady = false;
-          this.destinationSearchError = message;
-        }
-      );
-      this.destinationSearchReady = true;
-    } catch (error) {
-      this.destinationSearchReady = false;
-      this.destinationSearchError = this.errorMessage(error, 'Destination search could not be loaded.');
-    }
   }
 
   private updateLiveRouteProgress(latitude: number, longitude: number, accuracy = 0): void {
@@ -1082,7 +1028,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
 
   startVehicleDirections(): void {
     if (!this.vehicleNavigationActive || !this.vehicleTarget) {
-      this.status = 'Choose a destination or find your saved vehicle first.';
+      this.status = 'Find your saved vehicle first.';
       return;
     }
 
@@ -1123,7 +1069,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     document.body.style.overflow = this.bodyOverflowBeforeVehicleDirections;
     this.map?.resetOrientation();
 
-    // Return to the route-selection screen instead of discarding the destination.
+    // Return to the route-selection screen without discarding the selected vehicle route.
     if (this.routeAlternatives.length > 1) this.renderRouteAlternatives(false);
     this.status = `Route preview to ${this.routeTargetName}.`;
     window.setTimeout(() => this.map?.invalidateSize(), 0);
@@ -1818,9 +1764,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     // Always reuse the application's single current-location marker.
     this.showOwnLocation(curLat, curLng);
 
-    const targetLabel = this.routeTargetKind === 'vehicle'
-      ? '🚗 Vehicle'
-      : `📍 ${this.routeTargetName}`;
+    const targetLabel = '🚗 Vehicle';
 
     this.vehicleMarker = L.circleMarker([vehLat, vehLng], {
       radius: 10, weight: 4, color: '#ffffff', fillColor: '#ea4335', fillOpacity: 1
@@ -1925,13 +1869,11 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     // Deliberately do NOT remove currentMarker here. It is shared by group tracking
     // and vehicle navigation, and reusing it prevents duplicate blue dots.
     this.vehicleMarker?.remove();
-    this.destinationMarker?.remove();
     this.routeLine?.remove();
     this.vehicleRouteCasingLine?.remove();
     this.fallbackLine?.remove();
     this.clearAlternativeRoutes();
     this.vehicleMarker = undefined;
-    this.destinationMarker = undefined;
     this.routeLine = undefined;
     this.vehicleRouteCasingLine = undefined;
     this.fallbackLine = undefined;

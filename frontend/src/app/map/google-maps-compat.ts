@@ -43,12 +43,6 @@ export namespace L {
   export type LatLngExpression = [number, number] | { lat: number; lng: number };
   type PaddingTuple = [number, number];
 
-  export interface PlaceSearchResult {
-    name: string;
-    address: string;
-    latitude: number;
-    longitude: number;
-  }
 
   interface FitOptions {
     padding?: PaddingTuple | number;
@@ -367,54 +361,6 @@ export namespace L {
     getBounds(): LatLngBounds { return new LatLngBounds(this.points); }
     remove(): this { this.removed = true; this.line?.setMap(null); this.line = undefined; return this; }
     bringToFront(): this { this.line?.setOptions({ zIndex: ++zSequence }); return this; }
-  }
-
-  export async function createPlaceAutocomplete(
-    containerId: string,
-    onSelect: (place: PlaceSearchResult) => void,
-    onError?: (message: string) => void
-  ): Promise<void> {
-    try {
-      await loadGoogleMaps();
-      const container = document.getElementById(containerId);
-      if (!container) return;
-
-      const { PlaceAutocompleteElement } = await google.maps.importLibrary('places');
-      const autocomplete = new PlaceAutocompleteElement({});
-      autocomplete.setAttribute('placeholder', 'Search a destination');
-      autocomplete.setAttribute('aria-label', 'Search a destination');
-      autocomplete.classList.add('findme-place-autocomplete');
-
-      autocomplete.addEventListener('gmp-select', async (event: any) => {
-        try {
-          const prediction = event.placePrediction;
-          if (!prediction) return;
-          const place = prediction.toPlace();
-          await place.fetchFields({ fields: ['displayName', 'formattedAddress', 'location'] });
-          const location = place.location;
-          if (!location) {
-            onError?.('This destination does not have a map location.');
-            return;
-          }
-
-          const latitude = typeof location.lat === 'function' ? location.lat() : location.lat;
-          const longitude = typeof location.lng === 'function' ? location.lng() : location.lng;
-          onSelect({
-            name: place.displayName || place.formattedAddress || 'Destination',
-            address: place.formattedAddress || '',
-            latitude,
-            longitude
-          });
-        } catch {
-          onError?.('Could not open that destination. Please choose another result.');
-        }
-      });
-
-      container.replaceChildren(autocomplete);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Destination search could not be loaded.';
-      onError?.(message);
-    }
   }
 
   export function map(container: string, options: any = {}): Map { return new Map(container, options); }
