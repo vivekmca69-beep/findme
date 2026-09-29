@@ -1,14 +1,14 @@
 <div class="app-shell">
-  <header class="hero">
+  <header class="hero hero--premium">
     <div class="brand-row">
       <div class="brand-mark" aria-hidden="true">F</div>
-      <div>
-        <div class="eyebrow">LIVE LOCATION COMPANION</div>
+      <div class="brand-copy">
+        <div class="eyebrow">PRIVATE LOCATION COMPANION</div>
         <h1>FindMe</h1>
       </div>
-      <span class="privacy-pill">Private group</span>
+      <span class="privacy-pill"><i></i> Private</span>
     </div>
-    <p class="hero-copy">Live group tracking, road navigation, compass guidance and vehicle recovery.</p>
+    <p class="hero-copy">Find your vehicle, navigate anywhere and stay connected with your group.</p>
   </header>
 
   <section class="map-stage"
@@ -16,9 +16,22 @@
            [class.map-stage--has-session]="isSharing"
            [class.map-stage--vehicle-active]="vehicleNavigationActive"
            [class.map-stage--vehicle-directions]="vehicleDirectionsStarted">
-    <div id="map" class="map" aria-label="Map showing your location, vehicle and connected people"></div>
+    <div id="map" class="map" aria-label="Map showing your location, routes, vehicle and connected people"></div>
 
-    <div class="map-top-stack">
+    <!-- Google Places destination search. Hidden during active turn-by-turn guidance. -->
+    <div class="destination-search-wrap" *ngIf="!vehicleDirectionsStarted">
+      <div class="destination-search-card">
+        <span class="destination-search-icon" aria-hidden="true">⌕</span>
+        <div id="destination-search-host" class="destination-search-host">
+          <span class="destination-search-loading">Loading destination search…</span>
+        </div>
+      </div>
+      <div class="destination-search-error" *ngIf="destinationSearchError">
+        {{ destinationSearchError }}
+      </div>
+    </div>
+
+    <div class="map-top-stack" [class.map-top-stack--with-search]="!vehicleDirectionsStarted">
       <div class="map-type-toggle glass" role="group" aria-label="Map view">
         <button type="button" [class.active]="mapMode === 'street'" (click)="setMapMode('street')">Map</button>
         <button type="button" [class.active]="mapMode === 'satellite'" (click)="setMapMode('satellite')">Satellite</button>
@@ -48,34 +61,41 @@
       </div>
     </div>
 
-
-    <div class="google-route-warning" *ngIf="routePreferenceMode !== 'car'">
-      Google notes that Walk, Bicycle and Two-wheeler routes are beta and can occasionally miss clear paths or road restrictions.
+    <div class="google-route-warning" *ngIf="routePreferenceMode !== 'car' && !vehicleDirectionsStarted">
+      Route availability can vary for Walk, Bicycle and Two-wheeler modes.
     </div>
 
-    <div class="map-status glass" *ngIf="!vehicleNavigationActive" aria-live="polite" [attr.aria-busy]="isAnyActionBusy">
+    <div class="map-status glass" *ngIf="!vehicleNavigationActive && !vehicleDirectionsStarted" aria-live="polite" [attr.aria-busy]="isAnyActionBusy">
       <span class="status-spinner" *ngIf="isAnyActionBusy" aria-hidden="true"></span>
       <span class="status-dot" *ngIf="!isAnyActionBusy" [class.live]="isSharing"></span>
       <span>{{ status }}</span>
     </div>
 
-
-    <div class="map-control-stack">
+    <div class="map-control-stack" *ngIf="!vehicleDirectionsStarted">
       <button class="map-control glass" type="button" (click)="toggleMapFullscreen()" [attr.aria-label]="isMapFullscreen ? 'Exit full screen map' : 'Open full screen map'">
         {{ isMapFullscreen ? '✕' : '⛶' }}
       </button>
       <button class="map-control glass" type="button" *ngIf="latestOwnLocation" (click)="recenterOnMe()" aria-label="Recenter map on me">⌖</button>
     </div>
 
-    <!-- Route preview: Find vehicle focuses once, then the user owns the camera. -->
-    <div class="vehicle-route-preview" *ngIf="vehicleNavigationActive && !vehicleDirectionsStarted">
+    <!-- Route selection / preview -->
+    <div class="vehicle-route-preview route-preview--premium" *ngIf="vehicleNavigationActive && !vehicleDirectionsStarted">
       <div class="route-preview-handle" aria-hidden="true"></div>
-      <div class="route-preview-content">
-        <div class="route-preview-copy">
-          <span class="route-preview-label">{{ routeMode || 'Route to vehicle' }}</span>
+
+      <div class="route-target-row">
+        <div class="route-target-icon">{{ routeTargetKind === 'vehicle' ? '🚗' : '📍' }}</div>
+        <div class="route-target-copy">
+          <span class="route-preview-label">{{ routeTargetKind === 'vehicle' ? 'PARKED VEHICLE' : 'DESTINATION' }}</span>
+          <strong>{{ routeTargetName }}</strong>
+          <small *ngIf="routeTargetAddress">{{ routeTargetAddress }}</small>
+        </div>
+      </div>
+
+      <div class="route-primary-summary">
+        <div>
           <strong>{{ durationText || 'Calculating…' }}</strong>
-          <small *ngIf="distanceText">{{ distanceText }} · Saved vehicle</small>
-          <small *ngIf="!distanceText">Preparing the road route…</small>
+          <span>{{ distanceText || 'Preparing route…' }}</span>
+          <small>{{ routeMode || 'Road route' }}</small>
         </div>
         <button class="route-start-button"
                 type="button"
@@ -85,13 +105,32 @@
           Start
         </button>
       </div>
+
+      <div class="route-alternatives" *ngIf="routeAlternatives.length > 1">
+        <div class="route-alternatives-title">
+          <strong>Route options</strong>
+          <span>{{ routeAlternatives.length }} available</span>
+        </div>
+        <div class="route-alternative-scroll">
+          <button type="button"
+                  class="route-alternative-card"
+                  *ngFor="let route of routeAlternatives; let i = index"
+                  [class.active]="selectedRouteIndex === i"
+                  (click)="selectRouteAlternative(i)">
+            <span>{{ routeAlternativeLabel(i) }}</span>
+            <strong>{{ route.durationSeconds ? (route.durationSeconds / 60 | number:'1.0-0') + ' min' : '—' }}</strong>
+            <small>{{ route.distanceMeters < 1000 ? (route.distanceMeters | number:'1.0-0') + ' m' : (route.distanceMeters / 1000 | number:'1.1-1') + ' km' }}</small>
+          </button>
+        </div>
+      </div>
+
       <div class="route-preview-actions">
         <button type="button" class="route-preview-action" (click)="recenterOnMe()" [disabled]="!latestOwnLocation">⌖ Re-centre</button>
-        <button type="button" class="route-preview-action route-preview-action--danger" (click)="stopVehicleNavigation()">✕ Close</button>
+        <button type="button" class="route-preview-action" (click)="stopVehicleNavigation()">✕ Close route</button>
       </div>
     </div>
 
-    <!-- Clean in-app turn-by-turn style guidance. -->
+    <!-- Premium turn-by-turn style guidance -->
     <div class="vehicle-guidance-card" *ngIf="vehicleDirectionsStarted">
       <div class="vehicle-guidance-arrow" aria-hidden="true">{{ vehicleManeuverIcon(vehicleManeuver) }}</div>
       <div class="vehicle-guidance-copy">
@@ -101,18 +140,28 @@
       </div>
     </div>
 
+    <div class="reroute-pill" *ngIf="vehicleDirectionsStarted && isRerouting">
+      <span class="status-spinner" aria-hidden="true"></span>
+      Rerouting…
+    </div>
+
     <button class="vehicle-recentre-button"
+            [class.vehicle-recentre-button--following]="navigationCameraFollow"
             type="button"
             *ngIf="vehicleDirectionsStarted && latestOwnLocation"
             (click)="recenterOnMe()">
-      <span>⌖</span> Re-centre
+      <span>{{ navigationCameraFollow ? '➤' : '⌖' }}</span>
+      {{ navigationCameraFollow ? 'Following' : 'Re-centre' }}
     </button>
 
     <div class="vehicle-navigation-footer" *ngIf="vehicleDirectionsStarted">
       <div class="vehicle-nav-summary">
         <strong>{{ durationText || '—' }}</strong>
         <span>{{ distanceText || '—' }}<ng-container *ngIf="vehicleArrivalTimeText"> · arrive {{ vehicleArrivalTimeText }}</ng-container></span>
-        <small>{{ routeMode || 'Navigation' }} · live GPS route</small>
+        <small>
+          {{ routeTargetName }} · {{ routeMode || 'Navigation' }}
+          <ng-container *ngIf="offRouteDistanceText"> · {{ offRouteDistanceText }}</ng-container>
+        </small>
       </div>
       <button class="vehicle-exit-button" type="button" (click)="exitVehicleDirections()">Exit</button>
     </div>
@@ -143,35 +192,46 @@
   </section>
 
   <section class="quick-grid">
-    <article class="feature-card vehicle-card">
+    <article class="feature-card vehicle-card vehicle-card--safe">
       <div class="feature-top">
-        <div class="icon-orb">🚗</div>
-        <div><span class="micro-label">Parking</span><h2>My Vehicle</h2></div>
+        <div class="icon-orb icon-orb--vehicle">🚗</div>
+        <div>
+          <span class="micro-label">Parking</span>
+          <h2>My Vehicle</h2>
+        </div>
+        <span class="saved-parking-pill" *ngIf="savedVehicleExists"><i></i> Saved</span>
       </div>
-      <p>Save your parking point and choose Car, Two-wheeler, Bike or Walk when you navigate back.</p>
-      <div class="button-row">
-        <button class="btn btn-primary" type="button" (click)="saveVehicle()" [disabled]="isVehicleActionBusy" [attr.aria-busy]="isBusy('saveVehicle')">
+      <p>Save the parked location once, then return to it with road routing and live navigation.</p>
+
+      <div class="parking-primary-actions">
+        <button class="btn btn-primary parking-action" type="button" (click)="saveVehicle()" [disabled]="isVehicleActionBusy" [attr.aria-busy]="isBusy('saveVehicle')">
           <span class="btn-spinner" *ngIf="isBusy('saveVehicle')" aria-hidden="true"></span>
           <span *ngIf="!isBusy('saveVehicle')">＋</span>
-          {{ isBusy('saveVehicle') ? 'Saving…' : 'Save location' }}
+          <span><strong>{{ isBusy('saveVehicle') ? 'Saving…' : (savedVehicleExists ? 'Update parking' : 'Save parking') }}</strong><small>Use your current GPS point</small></span>
         </button>
-        <button class="btn btn-soft" type="button" (click)="findVehicle()" [disabled]="isVehicleActionBusy" [attr.aria-busy]="isBusy('findVehicle')">
+
+        <button class="btn btn-find parking-action" type="button" (click)="findVehicle()" [disabled]="isVehicleActionBusy" [attr.aria-busy]="isBusy('findVehicle')">
           <span class="btn-spinner" *ngIf="isBusy('findVehicle')" aria-hidden="true"></span>
           <span *ngIf="!isBusy('findVehicle')">⌖</span>
-          {{ isBusy('findVehicle') ? 'Finding route…' : (vehicleNavigationActive ? 'Refresh route' : 'Find vehicle') }}
-        </button>
-        <button class="btn btn-primary" type="button" *ngIf="vehicleNavigationActive && !vehicleDirectionsStarted && distanceText" (click)="startVehicleDirections()"><span>➤</span> Start directions</button>
-        <button class="btn btn-danger" type="button" *ngIf="vehicleNavigationActive" (click)="stopVehicleNavigation()"><span>■</span> Stop navigation</button>
-        <button class="btn btn-soft" type="button" (click)="clearSavedVehicle()" [disabled]="isVehicleActionBusy" [attr.aria-busy]="isBusy('clearVehicle')">
-          <span class="btn-spinner" *ngIf="isBusy('clearVehicle')" aria-hidden="true"></span>
-          <span *ngIf="!isBusy('clearVehicle')">×</span>
-          {{ isBusy('clearVehicle') ? 'Clearing…' : 'Clear saved vehicle' }}
+          <span><strong>{{ isBusy('findVehicle') ? 'Finding route…' : 'Find vehicle' }}</strong><small>Open route to saved parking</small></span>
         </button>
       </div>
-      <div class="metric-strip" *ngIf="routeMode">
+
+      <div class="metric-strip" *ngIf="routeTargetKind === 'vehicle' && routeMode">
         <div><span>Mode</span><strong>{{ routeMode }}</strong></div>
-        <div *ngIf="distanceText"><span>Distance</span><strong>{{ distanceText }}</strong></div>
+        <div *ngIf="distanceText"><span>Remaining</span><strong>{{ distanceText }}</strong></div>
         <div *ngIf="durationText"><span>ETA</span><strong>{{ durationText }}</strong></div>
+      </div>
+
+      <!-- Destructive action is deliberately separated from Find Vehicle. -->
+      <div class="parking-manage" *ngIf="savedVehicleExists">
+        <div>
+          <strong>Saved parking</strong>
+          <small>Your location stays saved until you update or remove it.</small>
+        </div>
+        <button class="parking-remove-button" type="button" (click)="requestClearSavedVehicle()" [disabled]="isVehicleActionBusy">
+          🗑 Remove
+        </button>
       </div>
     </article>
 
@@ -229,7 +289,6 @@
           </button>
         </div>
 
-
         <div class="participant-list">
           <div class="participant-row" *ngFor="let person of participants">
             <div class="participant-avatar" [class.host]="person.isHost">
@@ -268,7 +327,26 @@
 
   <footer class="privacy-note">
     <span>🔒</span>
-    <p><strong>Private live sessions.</strong> Session state is persisted in Redis; location updates remain temporary and stop when the group ends.</p>
-      <small class="google-powered">Powered by Google, ©2026 Google</small>
+    <p><strong>Private live sessions.</strong> Session state is persisted in Redis; live location sharing stops when the group ends.</p>
+    <small class="google-powered">Powered by Google</small>
   </footer>
+</div>
+
+<!-- Two-step destructive confirmation prevents accidental loss of parking location. -->
+<div class="confirm-backdrop" *ngIf="clearVehicleConfirmOpen" (click)="cancelClearSavedVehicle()">
+  <div class="confirm-sheet" role="dialog" aria-modal="true" aria-labelledby="clearParkingTitle" (click)="$event.stopPropagation()">
+    <div class="confirm-icon">🗑</div>
+    <div>
+      <span class="micro-label">REMOVE SAVED PARKING</span>
+      <h3 id="clearParkingTitle">Clear your vehicle location?</h3>
+      <p>This removes the saved parking point from this phone and the server. You cannot use Find Vehicle again until you save a new parking location.</p>
+    </div>
+    <div class="confirm-actions">
+      <button class="btn btn-soft" type="button" (click)="cancelClearSavedVehicle()">Cancel</button>
+      <button class="btn btn-danger" type="button" (click)="clearSavedVehicle()" [disabled]="isBusy('clearVehicle')">
+        <span class="btn-spinner" *ngIf="isBusy('clearVehicle')" aria-hidden="true"></span>
+        {{ isBusy('clearVehicle') ? 'Removing…' : 'Remove parking location' }}
+      </button>
+    </div>
+  </div>
 </div>

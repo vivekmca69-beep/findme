@@ -21,6 +21,8 @@ export interface WalkingRoute {
   mode?: RoutePreferenceMode;
   profile?: string;
   provider?: string;
+  routeIndex?: number;
+  routeLabels?: string[];
   distanceMeters: number;
   durationSeconds: number;
   points: RoutePoint[];
@@ -40,18 +42,40 @@ export class RouteService {
     toLng: number,
     mode: RoutePreferenceMode = 'car'
   ) {
-    const params = new HttpParams()
-      .set('fromLat', fromLat)
-      .set('fromLng', fromLng)
-      .set('toLat', toLat)
-      .set('toLng', toLng)
-      .set('mode', mode);
+    return this.http.get<WalkingRoute>(`${this.api}/preferred`, {
+      params: this.routeParams(fromLat, fromLng, toLat, toLng, mode)
+    });
+  }
 
-    return this.http.get<WalkingRoute>(`${this.api}/preferred`, { params });
+  alternatives(
+    fromLat: number,
+    fromLng: number,
+    toLat: number,
+    toLng: number,
+    mode: RoutePreferenceMode = 'car'
+  ) {
+    return this.http.get<WalkingRoute[]>(`${this.api}/alternatives`, {
+      params: this.routeParams(fromLat, fromLng, toLat, toLng, mode)
+    });
   }
 
   // Kept as a convenience for any future explicitly pedestrian-only screen.
   walking(fromLat: number, fromLng: number, toLat: number, toLng: number) {
     return this.preferred(fromLat, fromLng, toLat, toLng, 'walking');
+  }
+
+  private routeParams(
+    fromLat: number,
+    fromLng: number,
+    toLat: number,
+    toLng: number,
+    mode: RoutePreferenceMode
+  ): HttpParams {
+    return new HttpParams()
+      .set('fromLat', fromLat)
+      .set('fromLng', fromLng)
+      .set('toLat', toLat)
+      .set('toLng', toLng)
+      .set('mode', mode);
   }
 }

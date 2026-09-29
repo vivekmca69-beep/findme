@@ -28,23 +28,62 @@ public class RouteController : ControllerBase
         [FromQuery] string mode = "car",
         CancellationToken cancellationToken = default)
     {
+        var result = await ComputeRoutesAsync(
+            fromLat, fromLng, toLat, toLng, mode,
+            computeAlternativeRoutes: false,
+            cancellationToken);
+
+        if (result.ErrorResult is not null) return result.ErrorResult;
+        return Ok(result.Routes![0]);
+    }
+
+    [HttpGet("alternatives")]
+    public async Task<IActionResult> GetAlternativeRoutes(
+        [FromQuery] double fromLat,
+        [FromQuery] double fromLng,
+        [FromQuery] double toLat,
+        [FromQuery] double toLng,
+        [FromQuery] string mode = "car",
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ComputeRoutesAsync(
+            fromLat, fromLng, toLat, toLng, mode,
+            computeAlternativeRoutes: true,
+            cancellationToken);
+
+        if (result.ErrorResult is not null) return result.ErrorResult;
+
+        // A compact mobile preview is clearer with at most three visible choices.
+        // Google may return the default route plus several alternatives.
+        return Ok(result.Routes!.Take(3).ToList());
+    }
+
+    private async Task<RouteComputationResult> ComputeRoutesAsync(
+        double fromLat,
+        double fromLng,
+        double toLat,
+        double toLng,
+        string mode,
+        bool computeAlternativeRoutes,
+        CancellationToken cancellationToken)
+    {
         if (!IsValidCoordinate(fromLat, fromLng) || !IsValidCoordinate(toLat, toLng))
-            return BadRequest(new { message = "Invalid coordinates." });
+        {
+            return RouteComputationResult.Error(BadRequest(new { message = "Invalid coordinates." }));
+        }
 
         var apiKey = _configuration["GoogleRoutes:ApiKey"]
                      ?? _configuration["GOOGLE_ROUTES_API_KEY"]
                      ?? Environment.GetEnvironmentVariable("GOOGLE_ROUTES_API_KEY");
+
         if (string.IsNullOrWhiteSpace(apiKey))
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Google Routes API key is not configured on the server." });
-
-        var normalizedMode = mode.Trim().ToLowerInvariant() switch
         {
-            "two_wheeler" or "two-wheeler" or "motorcycle" => "two_wheeler",
-            "bicycle" or "bike" => "bicycle",
-            "walking" or "walk" => "walking",
-            _ => "car"
-        };
+            return RouteComputationResult.Error(StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                new { message = "Google Routes API key is not configured on the server." }));
+        }
 
+        var normalizedMode = NormalizeMode(mode);
         var googleTravelMode = normalizedMode switch
         {
             "two_wheeler" => "TWO_WHEELER",
@@ -64,15 +103,14 @@ public class RouteController : ControllerBase
                 location = new { latLng = new { latitude = toLat, longitude = toLng } }
             },
             ["travelMode"] = googleTravelMode,
-            ["computeAlternativeRoutes"] = false,
+            ["computeAlternativeRoutes"] = computeAlternativeRoutes,
             ["languageCode"] = "en-US",
             ["units"] = "METRIC",
             ["polylineQuality"] = "HIGH_QUALITY",
             ["polylineEncoding"] = "ENCODED_POLYLINE"
         };
 
-        // Explicitly avoid traffic-aware routing, as requested. This stays in the
-        // standard non-traffic route path for motorized modes.
+        // Preserve the existing cost/behavior choice: no traffic-aware routing.
         if (googleTravelMode is "DRIVE" or "TWO_WHEELER")
         {
             requestBody["routingPreference"] = "TRAFFIC_UNAWARE";
@@ -85,31 +123,67 @@ public class RouteController : ControllerBase
         }
 
         var client = _httpClientFactory.CreateClient();
-        using var request = new HttpRequestMessage(HttpMethod.Post, "https://routes.googleapis.com/directions/v2:computeRoutes");
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            "https://routes.googleapis.com/directions/v2:computeRoutes");
+
         request.Headers.TryAddWithoutValidation("X-Goog-Api-Key", apiKey);
         request.Headers.TryAddWithoutValidation(
             "X-Goog-FieldMask",
-            "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline," +
+            "routes.routeLabels,routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline," +
             "routes.legs.steps.navigationInstruction,routes.legs.steps.distanceMeters,routes.legs.steps.staticDuration");
-        request.Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(requestBody),
+            Encoding.UTF8,
+            "application/json");
 
         using var response = await client.SendAsync(request, cancellationToken);
         var json = await response.Content.ReadAsStringAsync(cancellationToken);
+
         if (!response.IsSuccessStatusCode)
         {
-            return StatusCode((int)response.StatusCode, new
-            {
-                message = "Google Routes API returned an error.",
-                details = json
-            });
+            return RouteComputationResult.Error(StatusCode(
+                (int)response.StatusCode,
+                new
+                {
+                    message = "Google Routes API returned an error.",
+                    details = json
+                }));
         }
 
         using var document = JsonDocument.Parse(json);
-        if (!document.RootElement.TryGetProperty("routes", out var routes) || routes.GetArrayLength() == 0)
-            return NotFound(new { message = "No route was returned for these locations." });
+        if (!document.RootElement.TryGetProperty("routes", out var rawRoutes) || rawRoutes.GetArrayLength() == 0)
+        {
+            return RouteComputationResult.Error(NotFound(
+                new { message = "No route was returned for these locations." }));
+        }
 
-        var route = routes[0];
-        var encodedPolyline = route.GetProperty("polyline").GetProperty("encodedPolyline").GetString() ?? string.Empty;
+        var routes = rawRoutes
+            .EnumerateArray()
+            .Select((route, index) => ParseRoute(route, normalizedMode, googleTravelMode, index))
+            .Where(route => route.Points.Count >= 2)
+            .ToList();
+
+        if (routes.Count == 0)
+        {
+            return RouteComputationResult.Error(NotFound(
+                new { message = "No usable road route was returned for these locations." }));
+        }
+
+        return RouteComputationResult.Success(routes);
+    }
+
+    private static WalkingRouteResponse ParseRoute(
+        JsonElement route,
+        string normalizedMode,
+        string googleTravelMode,
+        int index)
+    {
+        var encodedPolyline = route
+            .GetProperty("polyline")
+            .GetProperty("encodedPolyline")
+            .GetString() ?? string.Empty;
+
         var points = DecodePolyline(encodedPolyline)
             .Select(p => new RoutePoint { Latitude = p.Latitude, Longitude = p.Longitude })
             .ToList();
@@ -124,17 +198,22 @@ public class RouteController : ControllerBase
                 {
                     var instruction = string.Empty;
                     var maneuver = string.Empty;
+
                     if (rawStep.TryGetProperty("navigationInstruction", out var nav))
                     {
-                        if (nav.TryGetProperty("instructions", out var instructions)) instruction = instructions.GetString() ?? string.Empty;
-                        if (nav.TryGetProperty("maneuver", out var maneuverElement)) maneuver = maneuverElement.GetString() ?? string.Empty;
+                        if (nav.TryGetProperty("instructions", out var instructions))
+                            instruction = instructions.GetString() ?? string.Empty;
+                        if (nav.TryGetProperty("maneuver", out var maneuverElement))
+                            maneuver = maneuverElement.GetString() ?? string.Empty;
                     }
 
                     steps.Add(new RouteStep
                     {
                         Instruction = instruction,
                         Maneuver = maneuver,
-                        DistanceMeters = rawStep.TryGetProperty("distanceMeters", out var distance) ? distance.GetDouble() : 0,
+                        DistanceMeters = rawStep.TryGetProperty("distanceMeters", out var distance)
+                            ? distance.GetDouble()
+                            : 0,
                         DurationSeconds = rawStep.TryGetProperty("staticDuration", out var duration)
                             ? ParseGoogleDurationSeconds(duration.GetString())
                             : 0
@@ -143,24 +222,52 @@ public class RouteController : ControllerBase
             }
         }
 
-        return Ok(new WalkingRouteResponse
+        var labels = new List<string>();
+        if (route.TryGetProperty("routeLabels", out var rawLabels))
+        {
+            labels = rawLabels
+                .EnumerateArray()
+                .Select(label => label.GetString() ?? string.Empty)
+                .Where(label => !string.IsNullOrWhiteSpace(label))
+                .ToList();
+        }
+
+        return new WalkingRouteResponse
         {
             Mode = normalizedMode,
             Profile = googleTravelMode,
             Provider = "google",
-            DistanceMeters = route.TryGetProperty("distanceMeters", out var distanceMeters) ? distanceMeters.GetDouble() : 0,
+            RouteIndex = index,
+            RouteLabels = labels,
+            DistanceMeters = route.TryGetProperty("distanceMeters", out var distanceMeters)
+                ? distanceMeters.GetDouble()
+                : 0,
             DurationSeconds = route.TryGetProperty("duration", out var durationElement)
                 ? ParseGoogleDurationSeconds(durationElement.GetString())
                 : 0,
             Points = points,
             Steps = steps
-        });
+        };
     }
+
+    private static string NormalizeMode(string mode) => mode.Trim().ToLowerInvariant() switch
+    {
+        "two_wheeler" or "two-wheeler" or "motorcycle" => "two_wheeler",
+        "bicycle" or "bike" => "bicycle",
+        "walking" or "walk" => "walking",
+        _ => "car"
+    };
 
     private static double ParseGoogleDurationSeconds(string? value)
     {
         if (string.IsNullOrWhiteSpace(value) || !value.EndsWith('s')) return 0;
-        return double.TryParse(value[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds) ? seconds : 0;
+        return double.TryParse(
+            value[..^1],
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out var seconds)
+            ? seconds
+            : 0;
     }
 
     private static List<(double Latitude, double Longitude)> DecodePolyline(string encoded)
@@ -185,6 +292,7 @@ public class RouteController : ControllerBase
         var result = 0;
         var shift = 0;
         int b;
+
         do
         {
             b = encoded[index++] - 63;
@@ -197,6 +305,18 @@ public class RouteController : ControllerBase
 
     private static bool IsValidCoordinate(double latitude, double longitude) =>
         latitude is >= -90 and <= 90 && longitude is >= -180 and <= 180;
+
+    private sealed class RouteComputationResult
+    {
+        public List<WalkingRouteResponse>? Routes { get; init; }
+        public IActionResult? ErrorResult { get; init; }
+
+        public static RouteComputationResult Success(List<WalkingRouteResponse> routes) =>
+            new() { Routes = routes };
+
+        public static RouteComputationResult Error(IActionResult result) =>
+            new() { ErrorResult = result };
+    }
 }
 
 public class WalkingRouteResponse
@@ -204,6 +324,8 @@ public class WalkingRouteResponse
     public string Mode { get; set; } = "car";
     public string Profile { get; set; } = "DRIVE";
     public string Provider { get; set; } = "google";
+    public int RouteIndex { get; set; }
+    public List<string> RouteLabels { get; set; } = new();
     public double DistanceMeters { get; set; }
     public double DurationSeconds { get; set; }
     public List<RoutePoint> Points { get; set; } = new();
