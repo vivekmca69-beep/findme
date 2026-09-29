@@ -553,3 +553,355 @@ body.findme-map-fullscreen-open { overflow:hidden; }
   .route-mode-toggle { max-width:calc(100vw - 96px); }
   .route-mode-toggle button { min-width:56px; }
 }
+
+/* =========================================================
+   V13 VEHICLE ROUTE PREVIEW + CLEAN TURN-BY-TURN UI
+   ========================================================= */
+
+.map-stage--vehicle-active .google-route-warning {
+  display:none;
+}
+
+.vehicle-route-preview {
+  position:absolute;
+  left:14px;
+  right:14px;
+  bottom:38px;
+  z-index:780;
+  padding:10px 14px 12px;
+  border:1px solid rgba(255,255,255,.72);
+  border-radius:22px;
+  background:rgba(255,255,255,.97);
+  color:#182230;
+  box-shadow:0 18px 48px rgba(15,23,42,.22);
+  backdrop-filter:blur(18px);
+}
+
+.route-preview-handle {
+  width:34px;
+  height:4px;
+  margin:0 auto 10px;
+  border-radius:999px;
+  background:#d0d5dd;
+}
+
+.route-preview-content {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:14px;
+}
+
+.route-preview-copy {
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+
+.route-preview-label {
+  color:#667085;
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.03em;
+  text-transform:uppercase;
+}
+
+.route-preview-copy strong {
+  color:#172033;
+  font-size:26px;
+  line-height:1.05;
+}
+
+.route-preview-copy small {
+  color:#667085;
+  font-size:12px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.route-start-button {
+  min-width:94px;
+  min-height:52px;
+  border:0;
+  border-radius:18px;
+  background:#0f8a83;
+  color:#fff;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  padding:0 18px;
+  font:inherit;
+  font-size:14px;
+  font-weight:900;
+  cursor:pointer;
+  box-shadow:0 10px 22px rgba(15,138,131,.24);
+}
+
+.route-start-button span {
+  font-size:18px;
+  transform:rotate(-45deg);
+}
+
+.route-start-button:disabled {
+  opacity:.5;
+  cursor:wait;
+  box-shadow:none;
+}
+
+.route-preview-actions {
+  display:flex;
+  gap:8px;
+  margin-top:10px;
+}
+
+.route-preview-action {
+  flex:1;
+  min-height:36px;
+  border:1px solid #e4e7ec;
+  border-radius:12px;
+  background:#f8fafc;
+  color:#344054;
+  font:inherit;
+  font-size:11px;
+  font-weight:850;
+  cursor:pointer;
+}
+
+.route-preview-action--danger {
+  color:#b42318;
+  background:#fff8f7;
+}
+
+/* Start directions intentionally becomes a dedicated full-screen map surface. */
+.map-stage--vehicle-directions {
+  position:fixed!important;
+  inset:0!important;
+  z-index:10050!important;
+  width:100vw!important;
+  height:100dvh!important;
+  min-height:100dvh!important;
+  margin:0!important;
+  border-radius:0!important;
+  background:#eef2f6;
+}
+
+.map-stage--vehicle-directions .map {
+  width:100%!important;
+  height:100dvh!important;
+  min-height:100dvh!important;
+  border-radius:0!important;
+}
+
+body.findme-vehicle-directions-open {
+  overflow:hidden;
+}
+
+.map-stage--vehicle-directions .map-top-stack,
+.map-stage--vehicle-directions .google-route-warning,
+.map-stage--vehicle-directions .map-status,
+.map-stage--vehicle-directions .map-control-stack,
+.map-stage--vehicle-directions .vehicle-route-preview {
+  display:none!important;
+}
+
+.vehicle-guidance-card {
+  position:absolute;
+  top:max(12px, env(safe-area-inset-top));
+  left:12px;
+  right:12px;
+  z-index:900;
+  display:grid;
+  grid-template-columns:66px minmax(0,1fr);
+  gap:14px;
+  align-items:center;
+  padding:14px 16px;
+  border-radius:24px;
+  background:rgba(8,103,101,.97);
+  color:#fff;
+  box-shadow:0 14px 38px rgba(15,23,42,.26);
+  backdrop-filter:blur(14px);
+}
+
+.vehicle-guidance-arrow {
+  width:60px;
+  height:60px;
+  display:grid;
+  place-items:center;
+  font-size:43px;
+  line-height:1;
+  font-weight:800;
+}
+
+.vehicle-guidance-copy {
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+
+.vehicle-guidance-copy > span {
+  font-size:13px;
+  font-weight:850;
+  opacity:.9;
+}
+
+.vehicle-guidance-copy strong {
+  font-size:21px;
+  line-height:1.18;
+  font-weight:850;
+  overflow-wrap:anywhere;
+}
+
+.vehicle-guidance-copy small {
+  margin-top:4px;
+  padding-top:7px;
+  border-top:1px solid rgba(255,255,255,.18);
+  font-size:13px;
+  line-height:1.25;
+  opacity:.92;
+  overflow-wrap:anywhere;
+}
+
+.vehicle-recentre-button {
+  position:absolute;
+  left:14px;
+  bottom:calc(138px + max(12px, env(safe-area-inset-bottom)));
+  z-index:900;
+  min-height:46px;
+  border:1px solid rgba(255,255,255,.8);
+  border-radius:16px;
+  background:rgba(255,255,255,.97);
+  color:#087d82;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:0 16px;
+  font:inherit;
+  font-size:13px;
+  font-weight:900;
+  cursor:pointer;
+  box-shadow:0 10px 26px rgba(15,23,42,.18);
+}
+
+.vehicle-recentre-button span {
+  font-size:22px;
+}
+
+.vehicle-navigation-footer {
+  position:absolute;
+  left:12px;
+  right:12px;
+  bottom:max(38px, env(safe-area-inset-bottom));
+  z-index:900;
+  min-height:88px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:14px;
+  padding:12px 14px 12px 18px;
+  border:1px solid rgba(255,255,255,.82);
+  border-radius:24px;
+  background:rgba(255,255,255,.97);
+  box-shadow:0 18px 48px rgba(15,23,42,.24);
+  backdrop-filter:blur(18px);
+}
+
+.vehicle-nav-summary {
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+
+.vehicle-nav-summary strong {
+  color:#d92d20;
+  font-size:27px;
+  line-height:1;
+}
+
+.vehicle-nav-summary span {
+  color:#344054;
+  font-size:13px;
+  font-weight:750;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.vehicle-nav-summary small {
+  color:#98a2b3;
+  font-size:10px;
+  font-weight:700;
+}
+
+.vehicle-exit-button {
+  width:64px;
+  height:64px;
+  border:0;
+  border-radius:50%;
+  background:#df332c;
+  color:#fff;
+  font:inherit;
+  font-size:14px;
+  font-weight:900;
+  cursor:pointer;
+  box-shadow:0 10px 24px rgba(217,45,32,.26);
+}
+
+@media (max-width:600px) {
+  .vehicle-route-preview {
+    left:10px;
+    right:10px;
+    bottom:34px;
+    border-radius:20px;
+  }
+
+  .route-preview-copy strong {
+    font-size:24px;
+  }
+
+  .vehicle-guidance-card {
+    top:calc(max(8px, env(safe-area-inset-top)) + 2px);
+    left:8px;
+    right:8px;
+    grid-template-columns:54px minmax(0,1fr);
+    gap:10px;
+    padding:12px 13px;
+    border-radius:22px;
+  }
+
+  .vehicle-guidance-arrow {
+    width:52px;
+    height:56px;
+    font-size:38px;
+  }
+
+  .vehicle-guidance-copy strong {
+    font-size:19px;
+  }
+
+  .vehicle-guidance-copy small {
+    font-size:12px;
+  }
+
+  .vehicle-navigation-footer {
+    left:8px;
+    right:8px;
+    bottom:max(34px, env(safe-area-inset-bottom));
+    min-height:82px;
+    border-radius:22px;
+  }
+
+  .vehicle-recentre-button {
+    left:10px;
+    bottom:calc(128px + max(8px, env(safe-area-inset-bottom)));
+  }
+
+  .vehicle-exit-button {
+    width:60px;
+    height:60px;
+  }
+}

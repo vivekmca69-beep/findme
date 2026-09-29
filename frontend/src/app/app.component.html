@@ -11,7 +11,11 @@
     <p class="hero-copy">Live group tracking, road navigation, compass guidance and vehicle recovery.</p>
   </header>
 
-  <section class="map-stage" [class.map-stage--fullscreen]="isMapFullscreen" [class.map-stage--has-session]="isSharing">
+  <section class="map-stage"
+           [class.map-stage--fullscreen]="isMapFullscreen"
+           [class.map-stage--has-session]="isSharing"
+           [class.map-stage--vehicle-active]="vehicleNavigationActive"
+           [class.map-stage--vehicle-directions]="vehicleDirectionsStarted">
     <div id="map" class="map" aria-label="Map showing your location, vehicle and connected people"></div>
 
     <div class="map-top-stack">
@@ -49,7 +53,7 @@
       Google notes that Walk, Bicycle and Two-wheeler routes are beta and can occasionally miss clear paths or road restrictions.
     </div>
 
-    <div class="map-status glass" aria-live="polite" [attr.aria-busy]="isAnyActionBusy">
+    <div class="map-status glass" *ngIf="!vehicleNavigationActive" aria-live="polite" [attr.aria-busy]="isAnyActionBusy">
       <span class="status-spinner" *ngIf="isAnyActionBusy" aria-hidden="true"></span>
       <span class="status-dot" *ngIf="!isAnyActionBusy" [class.live]="isSharing"></span>
       <span>{{ status }}</span>
@@ -61,6 +65,56 @@
         {{ isMapFullscreen ? '✕' : '⛶' }}
       </button>
       <button class="map-control glass" type="button" *ngIf="latestOwnLocation" (click)="recenterOnMe()" aria-label="Recenter map on me">⌖</button>
+    </div>
+
+    <!-- Route preview: Find vehicle focuses once, then the user owns the camera. -->
+    <div class="vehicle-route-preview" *ngIf="vehicleNavigationActive && !vehicleDirectionsStarted">
+      <div class="route-preview-handle" aria-hidden="true"></div>
+      <div class="route-preview-content">
+        <div class="route-preview-copy">
+          <span class="route-preview-label">{{ routeMode || 'Route to vehicle' }}</span>
+          <strong>{{ durationText || 'Calculating…' }}</strong>
+          <small *ngIf="distanceText">{{ distanceText }} · Saved vehicle</small>
+          <small *ngIf="!distanceText">Preparing the road route…</small>
+        </div>
+        <button class="route-start-button"
+                type="button"
+                (click)="startVehicleDirections()"
+                [disabled]="!distanceText || isRouteProcessing">
+          <span>➤</span>
+          Start
+        </button>
+      </div>
+      <div class="route-preview-actions">
+        <button type="button" class="route-preview-action" (click)="recenterOnMe()" [disabled]="!latestOwnLocation">⌖ Re-centre</button>
+        <button type="button" class="route-preview-action route-preview-action--danger" (click)="stopVehicleNavigation()">✕ Close</button>
+      </div>
+    </div>
+
+    <!-- Clean in-app turn-by-turn style guidance. -->
+    <div class="vehicle-guidance-card" *ngIf="vehicleDirectionsStarted">
+      <div class="vehicle-guidance-arrow" aria-hidden="true">{{ vehicleManeuverIcon(vehicleManeuver) }}</div>
+      <div class="vehicle-guidance-copy">
+        <span *ngIf="vehicleStepDistanceText">{{ vehicleStepDistanceText }}</span>
+        <strong>{{ vehicleInstruction || 'Follow the highlighted route' }}</strong>
+        <small *ngIf="vehicleNextInstruction">Then {{ vehicleNextInstruction }}</small>
+      </div>
+    </div>
+
+    <button class="vehicle-recentre-button"
+            type="button"
+            *ngIf="vehicleDirectionsStarted && latestOwnLocation"
+            (click)="recenterOnMe()">
+      <span>⌖</span> Re-centre
+    </button>
+
+    <div class="vehicle-navigation-footer" *ngIf="vehicleDirectionsStarted">
+      <div class="vehicle-nav-summary">
+        <strong>{{ durationText || '—' }}</strong>
+        <span>{{ distanceText || '—' }}<ng-container *ngIf="vehicleArrivalTimeText"> · arrive {{ vehicleArrivalTimeText }}</ng-container></span>
+        <small>{{ routeMode || 'Navigation' }} · live GPS route</small>
+      </div>
+      <button class="vehicle-exit-button" type="button" (click)="exitVehicleDirections()">Exit</button>
     </div>
   </section>
 
@@ -106,6 +160,7 @@
           <span *ngIf="!isBusy('findVehicle')">⌖</span>
           {{ isBusy('findVehicle') ? 'Finding route…' : (vehicleNavigationActive ? 'Refresh route' : 'Find vehicle') }}
         </button>
+        <button class="btn btn-primary" type="button" *ngIf="vehicleNavigationActive && !vehicleDirectionsStarted && distanceText" (click)="startVehicleDirections()"><span>➤</span> Start directions</button>
         <button class="btn btn-danger" type="button" *ngIf="vehicleNavigationActive" (click)="stopVehicleNavigation()"><span>■</span> Stop navigation</button>
         <button class="btn btn-soft" type="button" (click)="clearSavedVehicle()" [disabled]="isVehicleActionBusy" [attr.aria-busy]="isBusy('clearVehicle')">
           <span class="btn-spinner" *ngIf="isBusy('clearVehicle')" aria-hidden="true"></span>

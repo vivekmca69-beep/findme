@@ -72,6 +72,19 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   routePreferenceMode: RoutePreferenceMode = 'car';
   vehicleNavigationActive = false;
 
+  // Vehicle route preview + Google-Maps-style in-app guidance.
+  // Finding the vehicle focuses the route once. GPS updates keep the marker/route live
+  // but never force the camera. The user explicitly enters guidance with Start directions.
+  vehicleDirectionsStarted = false;
+  vehicleInstruction = '';
+  vehicleNextInstruction = '';
+  vehicleStepDistanceText = '';
+  vehicleManeuver = '';
+  vehicleArrivalTimeText = '';
+  private currentVehicleRoute?: WalkingRoute;
+  private hasVehicleRouteAutoFit = false;
+  private bodyOverflowBeforeVehicleDirections = '';
+
   displayName = '';
   joinCode = '';
   activeSessionCode = '';
@@ -177,6 +190,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.stopVehicleNavigation(false);
     this.stopCompass();
     document.body.classList.remove('findme-map-fullscreen-open');
+    document.body.classList.remove('findme-vehicle-directions-open');
     if (this.participantStatusTimer !== undefined) window.clearInterval(this.participantStatusTimer);
     void this.friends.disconnect();
   }
@@ -258,8 +272,11 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   private beginVehicleNavigation(vehicle: SavedParkingLocation): void {
     this.vehicleTarget = { latitude: vehicle.latitude, longitude: vehicle.longitude };
     this.vehicleNavigationActive = true;
+    this.vehicleDirectionsStarted = false;
+    this.hasVehicleRouteAutoFit = false;
+    this.clearVehicleGuidance();
     this.routeMode = 'Calculating road route…';
-    this.status = `Starting live ${this.routeModeLabel(this.routePreferenceMode).toLowerCase()} navigation to your vehicle...`;
+    this.status = `Finding ${this.routeModeLabel(this.routePreferenceMode).toLowerCase()} route to your vehicle...`;
 
     this.getCurrentPosition().then(current => {
       const currentLat = current.coords.latitude;
@@ -280,11 +297,19 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       navigator.geolocation.clearWatch(this.vehicleNavigationWatchId);
       this.vehicleNavigationWatchId = undefined;
     }
+    const wasDirectionsMode = this.vehicleDirectionsStarted || document.body.classList.contains('findme-vehicle-directions-open');
     this.vehicleNavigationActive = false;
+    this.vehicleDirectionsStarted = false;
+    document.body.classList.remove('findme-vehicle-directions-open');
+    if (wasDirectionsMode) document.body.style.overflow = this.bodyOverflowBeforeVehicleDirections;
     this.vehicleRouteInFlight = false;
     this.lastVehicleRouteAt = 0;
     this.lastVehicleRouteOrigin = undefined;
     this.vehicleTarget = undefined;
+    this.currentVehicleRoute = undefined;
+    this.hasVehicleRouteAutoFit = false;
+    this.clearVehicleGuidance();
+    window.setTimeout(() => this.map?.invalidateSize(), 0);
     if (updateStatus) {
       this.endBusy('findVehicle');
       this.status = 'Vehicle navigation stopped.';
@@ -305,12 +330,10 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
         this.latestOwnLocation = { latitude, longitude };
 
         // Reuse the same marker instead of creating another dot.
+        // IMPORTANT: GPS updates move the marker and refresh the route, but they do
+        // NOT move/zoom the camera. This keeps manual pan/zoom under user control.
         this.showOwnLocation(latitude, longitude);
         this.refreshVehicleRoute(latitude, longitude);
-
-        // Navigation-style follow mode. The route itself is refreshed only when
-        // enough movement has occurred, while the marker can move continuously.
-        this.map?.setView([latitude, longitude], Math.max(this.map?.getZoom() ?? 18, 17), { animate: true });
       },
       error => {
         this.status = error.code === error.PERMISSION_DENIED
@@ -353,17 +376,29 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
         if (force) this.endBusy('findVehicle');
         if (!route.points || route.points.length < 2) {
           this.showFallbackLine(latitude, longitude, this.vehicleTarget!.latitude, this.vehicleTarget!.longitude);
+          this.fitVehicleEndpointsOnce(latitude, longitude);
           this.routeMode = 'Direct-line fallback';
           return;
         }
-        this.showWalkingRoute(route, force);
+        this.currentVehicleRoute = route;
+        const shouldAutoFit = !this.hasVehicleRouteAutoFit;
+        this.hasVehicleRouteAutoFit = true;
+        this.showWalkingRoute(route, shouldAutoFit);
+        this.updateVehicleGuidance(route);
       },
       error: () => {
         this.vehicleRouteInFlight = false;
         if (force) this.endBusy('findVehicle');
         this.showFallbackLine(latitude, longitude, this.vehicleTarget!.latitude, this.vehicleTarget!.longitude);
+        this.fitVehicleEndpointsOnce(latitude, longitude);
         this.status = 'Road route is temporarily unavailable. Direct line shown.';
         this.routeMode = 'Direct-line fallback';
+        if (this.vehicleDirectionsStarted) {
+          this.vehicleInstruction = 'Road route temporarily unavailable';
+          this.vehicleNextInstruction = 'Keep the vehicle marker in view while FindMe retries.';
+          this.vehicleStepDistanceText = '';
+          this.vehicleManeuver = '';
+        }
       }
     });
   }
@@ -523,6 +558,48 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
 
   recenterOnMe(): void {
     if (this.latestOwnLocation) this.map?.setView([this.latestOwnLocation.latitude, this.latestOwnLocation.longitude], 18);
+  }
+
+  startVehicleDirections(): void {
+    if (!this.vehicleNavigationActive || !this.vehicleTarget) {
+      this.status = 'Find your saved vehicle first.';
+      return;
+    }
+
+    this.vehicleDirectionsStarted = true;
+    this.bodyOverflowBeforeVehicleDirections = document.body.style.overflow;
+    document.body.classList.add('findme-vehicle-directions-open');
+    document.body.style.overflow = 'hidden';
+
+    // This is an explicit user action, so one close navigation view is useful here.
+    // After this single move, GPS updates will NOT keep changing the camera.
+    if (this.latestOwnLocation) {
+      this.map?.setView([this.latestOwnLocation.latitude, this.latestOwnLocation.longitude], 18, { animate: true });
+    }
+
+    if (this.currentVehicleRoute) this.updateVehicleGuidance(this.currentVehicleRoute);
+    this.status = 'Turn-by-turn guidance started. Use Re-centre whenever you want the map focused on you.';
+    window.setTimeout(() => this.map?.invalidateSize(), 0);
+  }
+
+  exitVehicleDirections(): void {
+    this.stopVehicleNavigation();
+  }
+
+  vehicleManeuverIcon(maneuver: string): string {
+    const value = (maneuver || '').toUpperCase();
+    if (value.includes('UTURN_LEFT')) return '↶';
+    if (value.includes('UTURN_RIGHT')) return '↷';
+    if (value.includes('SHARP_LEFT')) return '↰';
+    if (value.includes('SHARP_RIGHT')) return '↱';
+    if (value.includes('SLIGHT_LEFT')) return '↖';
+    if (value.includes('SLIGHT_RIGHT')) return '↗';
+    if (value.includes('TURN_LEFT') || value.includes('RAMP_LEFT') || value.includes('FORK_LEFT')) return '←';
+    if (value.includes('TURN_RIGHT') || value.includes('RAMP_RIGHT') || value.includes('FORK_RIGHT')) return '→';
+    if (value.includes('ROUNDABOUT')) return '↻';
+    if (value.includes('MERGE')) return '⇢';
+    if (value.includes('FERRY')) return '⛴';
+    return '↑';
   }
 
   setRoutePreferenceMode(mode: RoutePreferenceMode): void {
@@ -1191,8 +1268,15 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     }).addTo(this.map!)
       .bindTooltip('🚗 Vehicle', { permanent: true, direction: 'top', offset: [0, -8] });
 
-    this.map!.fitBounds(
-      L.latLngBounds([[curLat, curLng], [vehLat, vehLng]]),
+    // Do not change the camera here. The first successful road route will be fit
+    // once in showWalkingRoute(). Later GPS/route updates never refocus the map.
+  }
+
+  private fitVehicleEndpointsOnce(curLat: number, curLng: number): void {
+    if (!this.map || !this.vehicleTarget || this.hasVehicleRouteAutoFit) return;
+    this.hasVehicleRouteAutoFit = true;
+    this.map.fitBounds(
+      L.latLngBounds([[curLat, curLng], [this.vehicleTarget.latitude, this.vehicleTarget.longitude]]),
       { padding: [70, 70], maxZoom: 18 }
     );
   }
@@ -1241,6 +1325,31 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.durationText = this.formatDuration(route.durationSeconds);
     this.routeMode = this.routeModeLabel(this.routePreferenceMode);
     this.status = `${this.routeModeLabel(this.routePreferenceMode)} route to your vehicle is active.`;
+  }
+
+  private updateVehicleGuidance(route: WalkingRoute): void {
+    const usableSteps = (route.steps || []).filter(step => !!step.instruction?.trim());
+    const currentStep = usableSteps[0];
+    const nextStep = usableSteps[1];
+
+    this.vehicleInstruction = currentStep?.instruction?.trim() || 'Follow the highlighted route';
+    this.vehicleNextInstruction = nextStep?.instruction?.trim() || '';
+    this.vehicleStepDistanceText = currentStep ? this.formatDistance(currentStep.distanceMeters) : '';
+    this.vehicleManeuver = currentStep?.maneuver || '';
+    this.vehicleArrivalTimeText = this.formatArrivalTime(route.durationSeconds);
+  }
+
+  private clearVehicleGuidance(): void {
+    this.vehicleInstruction = '';
+    this.vehicleNextInstruction = '';
+    this.vehicleStepDistanceText = '';
+    this.vehicleManeuver = '';
+    this.vehicleArrivalTimeText = '';
+  }
+
+  private formatArrivalTime(seconds: number): string {
+    const arrival = new Date(Date.now() + Math.max(0, seconds) * 1000);
+    return arrival.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   }
 
   private showFallbackLine(curLat: number, curLng: number, vehLat: number, vehLng: number): void {
