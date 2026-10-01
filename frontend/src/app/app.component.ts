@@ -20,6 +20,7 @@ interface ParticipantVm extends FriendParticipantState {
 }
 
 type NavigationTarget = 'host';
+type PersonalNavigationKind = 'vehicle' | 'group-host';
 
 @Component({
   selector: 'app-root',
@@ -44,6 +45,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   private vehicleRouteInFlight = false;
   private lastVehicleRouteAt = 0;
   private lastVehicleRouteOrigin?: { latitude: number; longitude: number };
+  private lastVehicleRouteTarget?: { latitude: number; longitude: number };
   private hostWalkingRouteLine?: L.Polyline;
   private navigationRouteLine?: L.Polyline;
   private locationWatchId?: number;
@@ -103,6 +105,8 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   private lastCameraHeading = 0;
   private readonly offRouteBaseThresholdMeters = 35;
   private personalRouteRequestToken = 0;
+  private personalNavigationKind: PersonalNavigationKind = 'vehicle';
+  private pendingPersonalRouteBusyAction?: string;
 
   displayName = '';
   joinCode = '';
@@ -147,6 +151,18 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     private routes: RouteService,
     private friends: FriendService
   ) {}
+
+  get routeTargetLabel(): string {
+    return this.personalNavigationKind === 'group-host' ? 'GROUP HOST' : 'PARKED VEHICLE';
+  }
+
+  get routeTargetIcon(): string {
+    return this.personalNavigationKind === 'group-host' ? '⭐' : '🚗';
+  }
+
+  get isGroupHostNavigation(): boolean {
+    return this.personalNavigationKind === 'group-host' && this.vehicleNavigationActive;
+  }
 
   get isHost(): boolean {
     return !!this.hostDeviceId && this.hostDeviceId === this.deviceId;
@@ -297,7 +313,8 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.clearVehicleConfirmOpen = false;
 
     // If the user is currently navigating to the saved vehicle, stop that route first.
-    if (this.vehicleNavigationActive) {
+    // Group navigation is independent from clearing a saved parking point.
+    if (this.vehicleNavigationActive && this.personalNavigationKind === 'vehicle') {
       this.stopVehicleNavigation(false);
     }
 
@@ -323,7 +340,9 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       vehicle.latitude,
       vehicle.longitude,
       'Saved vehicle',
-      ''
+      '',
+      'vehicle',
+      'findVehicle'
     );
   }
 
@@ -331,9 +350,13 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     latitude: number,
     longitude: number,
     name: string,
-    address: string
+    address: string,
+    kind: PersonalNavigationKind = 'vehicle',
+    busyAction?: string
   ): void {
     this.personalRouteRequestToken += 1;
+    this.personalNavigationKind = kind;
+    this.pendingPersonalRouteBusyAction = busyAction;
     this.vehicleTarget = { latitude, longitude };
     this.routeTargetName = name;
     this.routeTargetAddress = address;
@@ -342,6 +365,9 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.hasVehicleRouteAutoFit = false;
     this.routeAlternatives = [];
     this.selectedRouteIndex = 0;
+    this.lastVehicleRouteAt = 0;
+    this.lastVehicleRouteOrigin = undefined;
+    this.lastVehicleRouteTarget = undefined;
     this.offRouteHitCount = 0;
     this.lastOffRouteRerouteAt = 0;
     this.isRerouting = false;
@@ -350,17 +376,27 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.routeMode = 'Calculating road route…';
     this.status = `Finding ${this.routeModeLabel(this.routePreferenceMode).toLowerCase()} route to ${name}...`;
 
-    this.getCurrentPosition().then(current => {
-      const currentLat = current.coords.latitude;
-      const currentLng = current.coords.longitude;
+    const startFrom = (currentLat: number, currentLng: number): void => {
       this.latestOwnLocation = { latitude: currentLat, longitude: currentLng };
       this.showEndpoints(currentLat, currentLng, latitude, longitude);
       this.refreshVehicleRoute(currentLat, currentLng, true, true);
-      this.startVehicleLocationWatch();
+
+      // Group sessions already have a high-accuracy GPS watcher. Reuse it so group
+      // navigation does not create a second browser geolocation subscription.
+      if (!this.isSharing) this.startVehicleLocationWatch();
+    };
+
+    if (this.isSharing && this.latestOwnLocation) {
+      startFrom(this.latestOwnLocation.latitude, this.latestOwnLocation.longitude);
+      return;
+    }
+
+    this.getCurrentPosition().then(current => {
+      startFrom(current.coords.latitude, current.coords.longitude);
     }).catch(err => {
       this.vehicleNavigationActive = false;
       this.status = String(err);
-      this.endBusy('findVehicle');
+      this.finishPendingPersonalRouteBusyAction();
     });
   }
 
@@ -382,6 +418,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.vehicleRouteInFlight = false;
     this.lastVehicleRouteAt = 0;
     this.lastVehicleRouteOrigin = undefined;
+    this.lastVehicleRouteTarget = undefined;
     this.vehicleTarget = undefined;
     this.currentVehicleRoute = undefined;
     this.routeAlternatives = [];
@@ -391,6 +428,8 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.clearVehicleGuidance();
     this.clearVehicleMapObjects();
     this.clearRouteInfo();
+    this.finishPendingPersonalRouteBusyAction();
+    this.personalNavigationKind = 'vehicle';
     this.map?.resetOrientation();
     window.setTimeout(() => this.map?.invalidateSize(), 0);
     if (updateStatus) {
@@ -437,6 +476,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!this.vehicleTarget || this.vehicleRouteInFlight) return;
 
     const requestToken = this.personalRouteRequestToken;
+    const routeTarget = { ...this.vehicleTarget };
     const now = Date.now();
     const moved = this.lastVehicleRouteOrigin
       ? this.haversineMeters(
@@ -446,25 +486,43 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
           longitude
         )
       : Number.POSITIVE_INFINITY;
+    const targetMoved = this.lastVehicleRouteTarget
+      ? this.haversineMeters(
+          this.lastVehicleRouteTarget.latitude,
+          this.lastVehicleRouteTarget.longitude,
+          routeTarget.latitude,
+          routeTarget.longitude
+        )
+      : Number.POSITIVE_INFINITY;
 
     // A normal refresh is deliberately conservative. Live ETA is calculated locally.
-    // Forced refreshes are used for initial routing, travel-mode changes and off-route recovery.
-    if (!force && this.lastVehicleRouteAt && (now - this.lastVehicleRouteAt < 30000 || moved < 25)) return;
+    // For a moving group host, a new paid route is allowed only after both a time
+    // cooldown and meaningful origin/target movement. Forced refreshes are reserved
+    // for initial routing, travel-mode changes and genuine off-route recovery.
+    const refreshCooldownMs = this.personalNavigationKind === 'group-host' ? 15000 : 30000;
+    const movementThresholdMeters = this.personalNavigationKind === 'group-host' ? 20 : 25;
+    if (
+      !force &&
+      this.lastVehicleRouteAt &&
+      (now - this.lastVehicleRouteAt < refreshCooldownMs ||
+        (moved < movementThresholdMeters && targetMoved < movementThresholdMeters))
+    ) return;
 
     this.vehicleRouteInFlight = true;
     this.lastVehicleRouteAt = now;
     this.lastVehicleRouteOrigin = { latitude, longitude };
+    this.lastVehicleRouteTarget = routeTarget;
 
     const onRoutes = (routes: WalkingRoute[]) => {
       if (requestToken !== this.personalRouteRequestToken) return;
       this.vehicleRouteInFlight = false;
       this.isRerouting = false;
       this.offRouteHitCount = 0;
-      if (force) this.endBusy('findVehicle');
+      if (force) this.finishPendingPersonalRouteBusyAction();
 
       const usable = (routes || []).filter(route => route.points?.length >= 2).slice(0, 3);
       if (!usable.length) {
-        this.showFallbackLine(latitude, longitude, this.vehicleTarget!.latitude, this.vehicleTarget!.longitude);
+        this.showFallbackLine(latitude, longitude, routeTarget.latitude, routeTarget.longitude);
         this.fitVehicleEndpointsOnce(latitude, longitude);
         this.routeMode = 'Direct-line fallback';
         return;
@@ -484,8 +542,8 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       if (requestToken !== this.personalRouteRequestToken) return;
       this.vehicleRouteInFlight = false;
       this.isRerouting = false;
-      if (force) this.endBusy('findVehicle');
-      this.showFallbackLine(latitude, longitude, this.vehicleTarget!.latitude, this.vehicleTarget!.longitude);
+      if (force) this.finishPendingPersonalRouteBusyAction();
+      this.showFallbackLine(latitude, longitude, routeTarget.latitude, routeTarget.longitude);
       this.fitVehicleEndpointsOnce(latitude, longitude);
       this.status = 'Road route is temporarily unavailable. Direct line shown.';
       this.routeMode = 'Direct-line fallback';
@@ -501,8 +559,8 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       this.routes.alternatives(
         latitude,
         longitude,
-        this.vehicleTarget.latitude,
-        this.vehicleTarget.longitude,
+        routeTarget.latitude,
+        routeTarget.longitude,
         this.routePreferenceMode
       ).subscribe({
         next: routes => onRoutes(routes),
@@ -512,8 +570,8 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
           this.routes.preferred(
             latitude,
             longitude,
-            this.vehicleTarget!.latitude,
-            this.vehicleTarget!.longitude,
+            routeTarget.latitude,
+            routeTarget.longitude,
             this.routePreferenceMode
           ).subscribe({
             next: route => onRoutes([route]),
@@ -527,8 +585,8 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.routes.preferred(
       latitude,
       longitude,
-      this.vehicleTarget.latitude,
-      this.vehicleTarget.longitude,
+      routeTarget.latitude,
+      routeTarget.longitude,
       this.routePreferenceMode
     ).subscribe({
       next: route => onRoutes([route]),
@@ -933,25 +991,36 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       this.status = 'Waiting for your GPS location before starting navigation.';
       return;
     }
-    if (!this.getTargetCoordinates(target)) {
+    const targetCoordinates = this.getTargetCoordinates(target);
+    if (!targetCoordinates) {
       this.status = 'Waiting for the host GPS.';
       return;
     }
+
+    // Group navigation now uses the same premium route engine as Find Vehicle:
+    // route alternatives -> Start -> live ETA -> off-route rerouting -> follow camera.
+    this.stopNavigation();
+    if (this.vehicleNavigationActive) this.stopVehicleNavigation(false);
+
     const action = 'navigateHost';
     if (!this.beginBusy(action)) return;
-    this.pendingNavigationBusyAction = action;
+
     this.navigationTarget = target;
     this.navigationTargetName = this.hostParticipant?.displayName || 'Host';
-    this.navigationActive = true;
-    this.navigationInstruction = 'Calculating route…';
-    this.lastNavigationRouteAt = 0;
-    this.lastNavigationOrigin = undefined;
-    this.lastNavigationTarget = undefined;
-    this.refreshNavigationRouteIfNeeded(true);
-    this.status = `Calculating route to ${this.navigationTargetName}...`;
+    this.beginPersonalNavigation(
+      targetCoordinates.latitude,
+      targetCoordinates.longitude,
+      this.navigationTargetName,
+      'Live group location',
+      'group-host',
+      action
+    );
   }
 
   stopNavigation(): void {
+    if (this.personalNavigationKind === 'group-host' && this.vehicleNavigationActive) {
+      this.stopVehicleNavigation(false);
+    }
     if (this.pendingNavigationBusyAction) {
       this.endBusy(this.pendingNavigationBusyAction);
       this.pendingNavigationBusyAction = undefined;
@@ -1028,7 +1097,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
 
   startVehicleDirections(): void {
     if (!this.vehicleNavigationActive || !this.vehicleTarget) {
-      this.status = 'Find your saved vehicle first.';
+      this.status = 'Open a route before starting navigation.';
       return;
     }
 
@@ -1273,6 +1342,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.refreshParticipantList();
     this.redrawHostConnectors();
     this.refreshOwnWalkingRouteToHostIfNeeded();
+    this.syncActiveGroupNavigationTarget();
     if (this.navigationActive) this.refreshNavigationRouteIfNeeded(true);
     this.updateCompassTarget();
 
@@ -1297,6 +1367,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.refreshParticipantList();
     this.redrawHostConnectors();
     this.refreshOwnWalkingRouteToHostIfNeeded();
+    this.syncActiveGroupNavigationTarget();
     this.refreshNavigationRouteIfNeeded();
     this.updateCompassTarget();
   }
@@ -1318,7 +1389,10 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
         this.refreshOwnWalkingRouteToHostIfNeeded();
         this.refreshNavigationRouteIfNeeded();
         this.updateCompassTarget();
-        if (this.navigationActive) this.map?.setView([latitude, longitude], 18, { animate: true });
+        if (this.vehicleNavigationActive) {
+          this.updateLiveRouteProgress(latitude, longitude, position.coords.accuracy);
+          this.updateNavigationCamera(position);
+        }
       },
       error => this.status = error.code === error.PERMISSION_DENIED
         ? 'Location permission is required for live sharing.'
@@ -1608,6 +1682,48 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
+  private syncActiveGroupNavigationTarget(): void {
+    if (this.personalNavigationKind !== 'group-host' || !this.vehicleNavigationActive) return;
+
+    const target = this.getTargetCoordinates('host');
+    if (!target) return;
+
+    const previous = this.vehicleTarget;
+    this.vehicleTarget = { ...target };
+    this.routeTargetName = this.hostParticipant?.displayName || 'Host';
+    this.navigationTargetName = this.routeTargetName;
+
+    if (!this.latestOwnLocation) return;
+
+    // Update the locally estimated remaining distance immediately. A new Google
+    // route is requested only if the host has moved meaningfully and the route
+    // refresh cooldown has elapsed.
+    this.updateLiveRouteProgress(
+      this.latestOwnLocation.latitude,
+      this.latestOwnLocation.longitude,
+      0
+    );
+
+    const targetMoved = previous
+      ? this.haversineMeters(previous.latitude, previous.longitude, target.latitude, target.longitude)
+      : Number.POSITIVE_INFINITY;
+
+    if (targetMoved >= 20) {
+      this.refreshVehicleRoute(
+        this.latestOwnLocation.latitude,
+        this.latestOwnLocation.longitude,
+        false,
+        false
+      );
+    }
+  }
+
+  private finishPendingPersonalRouteBusyAction(): void {
+    if (!this.pendingPersonalRouteBusyAction) return;
+    this.endBusy(this.pendingPersonalRouteBusyAction);
+    this.pendingPersonalRouteBusyAction = undefined;
+  }
+
   private getTargetCoordinates(_target: NavigationTarget): { latitude: number; longitude: number } | null {
     const host = this.participantState.get(this.hostDeviceId);
     return host?.latitude != null && host.longitude != null ? { latitude: host.latitude, longitude: host.longitude } : null;
@@ -1625,6 +1741,9 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private resetGroupState(): void {
+    if (this.personalNavigationKind === 'group-host' && this.vehicleNavigationActive) {
+      this.stopVehicleNavigation(false);
+    }
     this.isSharing = false;
     this.participantCount = 0;
     this.hostDeviceId = '';
@@ -1757,19 +1876,24 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.map!.setView([lat, lng], 18);
   }
 
-  private showEndpoints(curLat: number, curLng: number, vehLat: number, vehLng: number): void {
+  private showEndpoints(curLat: number, curLng: number, targetLat: number, targetLng: number): void {
     this.initMap(curLat, curLng);
     this.clearVehicleMapObjects();
 
     // Always reuse the application's single current-location marker.
     this.showOwnLocation(curLat, curLng);
 
-    const targetLabel = '🚗 Vehicle';
-
-    this.vehicleMarker = L.circleMarker([vehLat, vehLng], {
-      radius: 10, weight: 4, color: '#ffffff', fillColor: '#ea4335', fillOpacity: 1
-    }).addTo(this.map!)
-      .bindTooltip(targetLabel, { permanent: true, direction: 'top', offset: [0, -8] });
+    if (this.personalNavigationKind === 'group-host') {
+      // The live host already has a participant marker that moves through SignalR.
+      // Reuse it instead of drawing a second target marker on top of the host.
+      this.renderParticipant(this.hostDeviceId);
+      this.participantMarkers.get(this.hostDeviceId)?.bringToFront();
+    } else {
+      this.vehicleMarker = L.circleMarker([targetLat, targetLng], {
+        radius: 10, weight: 4, color: '#ffffff', fillColor: '#ea4335', fillOpacity: 1
+      }).addTo(this.map!)
+        .bindTooltip('🚗 Vehicle', { permanent: true, direction: 'top', offset: [0, -8] });
+    }
 
     // Do not change the camera here. The first successful road route will be fit
     // once in showWalkingRoute(). Later GPS/route updates never refocus the map.

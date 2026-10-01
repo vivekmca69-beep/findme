@@ -70,9 +70,9 @@
       <div class="route-preview-handle" aria-hidden="true"></div>
 
       <div class="route-target-row">
-        <div class="route-target-icon">🚗</div>
+        <div class="route-target-icon">{{ routeTargetIcon }}</div>
         <div class="route-target-copy">
-          <span class="route-preview-label">PARKED VEHICLE</span>
+          <span class="route-preview-label">{{ routeTargetLabel }}</span>
           <strong>{{ routeTargetName }}</strong>
           <small *ngIf="routeTargetAddress">{{ routeTargetAddress }}</small>
         </div>
@@ -154,18 +154,6 @@
     </div>
   </section>
 
-  <section class="navigation-panel" *ngIf="navigationActive">
-    <div class="nav-icon">↗</div>
-    <div class="nav-copy">
-      <span class="micro-label">LIVE NAVIGATION · {{ navigationTargetName }}</span>
-      <strong>{{ navigationInstruction || 'Calculating route…' }}</strong>
-      <small>
-        {{ navigationStepDistanceText ? navigationStepDistanceText + ' to next step · ' : '' }}
-        {{ navigationDistanceText || '—' }} remaining · {{ navigationDurationText || '—' }}
-      </small>
-    </div>
-    <button class="btn btn-soft compact" type="button" (click)="stopNavigation()">Stop</button>
-  </section>
 
   <section class="compass-panel" *ngIf="compassActive">
     <div class="compass-dial">
