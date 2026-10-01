@@ -72,12 +72,16 @@ export namespace L {
     interactive?: boolean;
   }
 
+  type MarkerVisual = 'circle' | 'navigation-car' | 'navigation-scooter' | 'navigation-walk';
+
   interface CircleMarkerOptions {
     radius?: number;
     weight?: number;
     color?: string;
     fillColor?: string;
     fillOpacity?: number;
+    visual?: MarkerVisual;
+    rotationAngle?: number;
   }
 
   interface TooltipOptions {
@@ -265,8 +269,14 @@ export namespace L {
     private latLng: LatLngExpression;
     private tooltipText = '';
     private removed = false;
+    private visual: MarkerVisual;
+    private rotationAngle: number;
 
-    constructor(latLng: LatLngExpression, private options: CircleMarkerOptions = {}) { this.latLng = latLng; }
+    constructor(latLng: LatLngExpression, private options: CircleMarkerOptions = {}) {
+      this.latLng = latLng;
+      this.visual = options.visual ?? 'circle';
+      this.rotationAngle = options.rotationAngle ?? 0;
+    }
 
     addTo(map: Map): this {
       this.map = map;
@@ -282,14 +292,7 @@ export namespace L {
         position: toLiteral(this.latLng),
         zIndex: ++zSequence,
         optimized: true,
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: this.options.radius ?? 10,
-          fillColor: this.options.fillColor ?? '#2563eb',
-          fillOpacity: this.options.fillOpacity ?? 1,
-          strokeColor: this.options.color ?? '#ffffff',
-          strokeWeight: this.options.weight ?? 3
-        },
+        icon: this.buildIcon(),
         label: this.buildLabel()
       });
     }
@@ -304,6 +307,57 @@ export namespace L {
       } : undefined;
     }
 
+    private buildIcon(): any {
+      if (this.visual === 'circle') {
+        return {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: this.options.radius ?? 10,
+          fillColor: this.options.fillColor ?? '#2563eb',
+          fillOpacity: this.options.fillOpacity ?? 1,
+          strokeColor: this.options.color ?? '#ffffff',
+          strokeWeight: this.options.weight ?? 3
+        };
+      }
+
+      const fill = this.visual === 'navigation-car'
+        ? '#2563eb'
+        : this.visual === 'navigation-scooter'
+          ? '#0f766e'
+          : '#7c3aed';
+      const glyph = this.visual === 'navigation-car'
+        ? '🚗'
+        : this.visual === 'navigation-scooter'
+          ? '🛵'
+          : '🚶';
+      const svg = this.buildNavigationSvg(fill, glyph, this.rotationAngle);
+      return {
+        url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+        scaledSize: new google.maps.Size(50, 50),
+        anchor: new google.maps.Point(25, 25),
+        labelOrigin: new google.maps.Point(25, 54)
+      };
+    }
+
+    private buildNavigationSvg(fill: string, glyph: string, rotationAngle: number): string {
+      const rotation = Number.isFinite(rotationAngle) ? rotationAngle : 0;
+      return `
+        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+          <defs>
+            <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+              <feDropShadow dx="0" dy="5" stdDeviation="4" flood-color="rgba(15,23,42,0.28)"/>
+            </filter>
+          </defs>
+          <g filter="url(#shadow)">
+            <g transform="rotate(${rotation} 32 32)">
+              <path d="M32 2 L23 16 L41 16 Z" fill="${fill}"/>
+            </g>
+            <circle cx="32" cy="32" r="18" fill="white" stroke="${fill}" stroke-width="4"/>
+            <text x="32" y="38" text-anchor="middle" font-size="20">${glyph}</text>
+          </g>
+        </svg>
+      `;
+    }
+
     setLatLng(latLng: LatLngExpression): this {
       this.latLng = latLng;
       this.marker?.setPosition(toLiteral(latLng));
@@ -313,6 +367,18 @@ export namespace L {
     bindTooltip(text: string, _options: TooltipOptions = {}): this {
       this.tooltipText = text;
       this.marker?.setLabel(this.buildLabel());
+      return this;
+    }
+
+    setVisual(visual: MarkerVisual): this {
+      this.visual = visual;
+      this.marker?.setIcon(this.buildIcon());
+      return this;
+    }
+
+    setRotationAngle(rotationAngle: number): this {
+      this.rotationAngle = rotationAngle;
+      if (this.visual !== 'circle') this.marker?.setIcon(this.buildIcon());
       return this;
     }
 

@@ -160,6 +160,21 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     return this.personalNavigationKind === 'group-host' ? '⭐' : '🚗';
   }
 
+  private currentNavigationMarkerVisual(): 'circle' | 'navigation-car' | 'navigation-scooter' | 'navigation-walk' {
+    if (!this.vehicleDirectionsStarted) return 'circle';
+    if (this.routePreferenceMode === 'car') return 'navigation-car';
+    if (this.routePreferenceMode === 'two_wheeler') return 'navigation-scooter';
+    return 'navigation-walk';
+  }
+
+  private refreshCurrentMarkerPresentation(heading = this.lastCameraHeading): void {
+    if (!this.currentMarker) return;
+    this.currentMarker
+      .setVisual(this.currentNavigationMarkerVisual())
+      .setRotationAngle(this.vehicleDirectionsStarted ? heading : 0);
+    this.currentMarker.bringToFront();
+  }
+
   get isGroupHostNavigation(): boolean {
     return this.personalNavigationKind === 'group-host' && this.vehicleNavigationActive;
   }
@@ -430,6 +445,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.clearRouteInfo();
     this.finishPendingPersonalRouteBusyAction();
     this.personalNavigationKind = 'vehicle';
+    this.refreshCurrentMarkerPresentation(0);
     this.map?.resetOrientation();
     window.setTimeout(() => this.map?.invalidateSize(), 0);
     if (updateStatus) {
@@ -826,6 +842,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       heading = this.routeHeadingNear(latitude, longitude) ?? this.lastCameraHeading;
     }
     this.lastCameraHeading = heading;
+    this.refreshCurrentMarkerPresentation(heading);
 
     if (!this.vehicleDirectionsStarted || !this.navigationCameraFollow) return;
     this.updateNavigationCameraFromCoordinates(latitude, longitude, heading);
@@ -1117,11 +1134,14 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
         this.latestOwnLocation.longitude
       ) ?? this.lastCameraHeading;
       this.lastCameraHeading = heading;
+      this.refreshCurrentMarkerPresentation(heading);
       this.updateNavigationCameraFromCoordinates(
         this.latestOwnLocation.latitude,
         this.latestOwnLocation.longitude,
         heading
       );
+    } else {
+      this.refreshCurrentMarkerPresentation();
     }
 
     if (this.currentVehicleRoute) this.updateVehicleGuidance(this.currentVehicleRoute);
@@ -1134,6 +1154,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
 
     this.vehicleDirectionsStarted = false;
     this.navigationCameraFollow = false;
+    this.refreshCurrentMarkerPresentation(0);
     document.body.classList.remove('findme-vehicle-directions-open');
     document.body.style.overflow = this.bodyOverflowBeforeVehicleDirections;
     this.map?.resetOrientation();
@@ -1189,6 +1210,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
       this.refreshGroupRoadRoutesIfNeeded();
     }
 
+    this.refreshCurrentMarkerPresentation();
     this.status = `${this.routeModeLabel(mode)} routing selected.`;
   }
 
@@ -1732,12 +1754,21 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   private showOwnLocation(latitude: number, longitude: number): void {
     this.initMap(latitude, longitude);
     if (!this.currentMarker) {
-      this.currentMarker = L.circleMarker([latitude, longitude], { radius: 11, weight: 4, color: '#ffffff', fillColor: '#2563eb', fillOpacity: 1 }).addTo(this.map!)
+      this.currentMarker = L.circleMarker([latitude, longitude], {
+        radius: 11,
+        weight: 4,
+        color: '#ffffff',
+        fillColor: '#2563eb',
+        fillOpacity: 1,
+        visual: this.currentNavigationMarkerVisual(),
+        rotationAngle: this.vehicleDirectionsStarted ? this.lastCameraHeading : 0
+      }).addTo(this.map!)
         .bindTooltip(this.isHost ? '⭐ You (Host)' : 'You', { permanent: true, direction: 'top', offset: [0, -8] });
     } else {
       this.currentMarker.setLatLng([latitude, longitude]);
       this.currentMarker.bindTooltip(this.isHost ? '⭐ You (Host)' : 'You', { permanent: true, direction: 'top', offset: [0, -8] });
     }
+    this.refreshCurrentMarkerPresentation();
   }
 
   private resetGroupState(): void {
@@ -2001,6 +2032,29 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     this.routeLine = undefined;
     this.vehicleRouteCasingLine = undefined;
     this.fallbackLine = undefined;
+  }
+
+  showActiveRouteOverview(): void {
+    if (!this.map) return;
+
+    const points = this.currentVehicleRoute?.points;
+    if (points?.length) {
+      this.map.fitBounds(
+        L.latLngBounds(points.map(point => [point.latitude, point.longitude] as [number, number])),
+        { padding: [72, 72], maxZoom: 18 }
+      );
+      return;
+    }
+
+    if (this.latestOwnLocation && this.vehicleTarget) {
+      this.map.fitBounds(
+        L.latLngBounds([
+          [this.latestOwnLocation.latitude, this.latestOwnLocation.longitude],
+          [this.vehicleTarget.latitude, this.vehicleTarget.longitude]
+        ]),
+        { padding: [72, 72], maxZoom: 18 }
+      );
+    }
   }
 
   private routeModeLabel(mode: RoutePreferenceMode): string {

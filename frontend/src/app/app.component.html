@@ -31,9 +31,6 @@
         <button type="button" [class.active]="routePreferenceMode === 'two_wheeler'" (click)="setRoutePreferenceMode('two_wheeler')" [disabled]="isRouteProcessing" aria-label="Motorcycle or scooter route">
           <span class="travel-icon">🏍️</span><span>2-Wheeler</span>
         </button>
-        <button type="button" [class.active]="routePreferenceMode === 'bicycle'" (click)="setRoutePreferenceMode('bicycle')" [disabled]="isRouteProcessing" aria-label="Bicycle route">
-          <span class="travel-icon">🚲</span><span>Bike</span>
-        </button>
         <button type="button" [class.active]="routePreferenceMode === 'walking'" (click)="setRoutePreferenceMode('walking')" [disabled]="isRouteProcessing" aria-label="Walking route">
           <span class="travel-icon">🚶</span><span>Walk</span>
         </button>
@@ -49,7 +46,7 @@
     </div>
 
     <div class="google-route-warning" *ngIf="routePreferenceMode !== 'car' && !vehicleDirectionsStarted">
-      Route availability can vary for Walk, Bicycle and Two-wheeler modes.
+      Route availability can vary for Walk and Two-wheeler modes.
     </div>
 
     <div class="map-status glass" *ngIf="!vehicleNavigationActive && !vehicleDirectionsStarted && (!isMapFullscreen || status !== 'Map ready')" aria-live="polite" [attr.aria-busy]="isAnyActionBusy">
@@ -118,13 +115,15 @@
     </div>
 
     <!-- Premium turn-by-turn style guidance -->
-    <div class="vehicle-guidance-card" *ngIf="vehicleDirectionsStarted">
-      <div class="vehicle-guidance-arrow" aria-hidden="true">{{ vehicleManeuverIcon(vehicleManeuver) }}</div>
-      <div class="vehicle-guidance-copy">
-        <span *ngIf="vehicleStepDistanceText">{{ vehicleStepDistanceText }}</span>
-        <strong>{{ vehicleInstruction || 'Follow the highlighted route' }}</strong>
-        <small *ngIf="vehicleNextInstruction">Then {{ vehicleNextInstruction }}</small>
+    <div class="vehicle-guidance-card vehicle-guidance-card--google" *ngIf="vehicleDirectionsStarted">
+      <div class="vehicle-guidance-main">
+        <div class="vehicle-guidance-arrow" aria-hidden="true">{{ vehicleManeuverIcon(vehicleManeuver) }}</div>
+        <div class="vehicle-guidance-copy">
+          <span *ngIf="vehicleStepDistanceText">{{ vehicleStepDistanceText }}</span>
+          <strong>{{ vehicleInstruction || 'Follow the highlighted route' }}</strong>
+        </div>
       </div>
+      <div class="vehicle-guidance-next" *ngIf="vehicleNextInstruction">Then {{ vehicleNextInstruction }}</div>
     </div>
 
     <div class="reroute-pill" *ngIf="vehicleDirectionsStarted && isRerouting">
@@ -132,25 +131,35 @@
       Rerouting…
     </div>
 
-    <button class="vehicle-recentre-button"
-            [class.vehicle-recentre-button--following]="navigationCameraFollow"
-            type="button"
-            *ngIf="vehicleDirectionsStarted && latestOwnLocation"
-            (click)="recenterOnMe()">
-      <span>{{ navigationCameraFollow ? '➤' : '⌖' }}</span>
-      {{ navigationCameraFollow ? 'Following' : 'Re-centre' }}
-    </button>
+    <div class="vehicle-side-controls" *ngIf="vehicleDirectionsStarted && latestOwnLocation">
+      <button class="vehicle-side-control"
+              [class.vehicle-side-control--following]="navigationCameraFollow"
+              type="button"
+              (click)="recenterOnMe()"
+              aria-label="Re-centre navigation camera">
+        <span>{{ navigationCameraFollow ? '➤' : '⌖' }}</span>
+      </button>
+      <button class="vehicle-side-control"
+              type="button"
+              (click)="showActiveRouteOverview()"
+              aria-label="Show route overview">
+        ↗
+      </button>
+    </div>
 
-    <div class="vehicle-navigation-footer" *ngIf="vehicleDirectionsStarted">
+    <div class="vehicle-navigation-footer vehicle-navigation-footer--google" *ngIf="vehicleDirectionsStarted">
       <div class="vehicle-nav-summary">
         <strong>{{ durationText || '—' }}</strong>
-        <span>{{ distanceText || '—' }}<ng-container *ngIf="vehicleArrivalTimeText"> · arrive {{ vehicleArrivalTimeText }}</ng-container></span>
+        <span>{{ distanceText || '—' }}<ng-container *ngIf="vehicleArrivalTimeText"> · {{ vehicleArrivalTimeText }}</ng-container></span>
         <small>
           {{ routeTargetName }} · {{ routeMode || 'Navigation' }}
           <ng-container *ngIf="offRouteDistanceText"> · {{ offRouteDistanceText }}</ng-container>
         </small>
       </div>
-      <button class="vehicle-exit-button" type="button" (click)="exitVehicleDirections()">Exit</button>
+      <div class="vehicle-footer-actions">
+        <button class="vehicle-ghost-button" type="button" (click)="showActiveRouteOverview()">Overview</button>
+        <button class="vehicle-exit-button" type="button" (click)="exitVehicleDirections()">Exit</button>
+      </div>
     </div>
   </section>
 
