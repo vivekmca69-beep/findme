@@ -2053,3 +2053,94 @@ body.findme-vehicle-directions-open {
     bottom:142px;
   }
 }
+
+/* V20 compact route sheet: place travel modes inside the directions card so the
+   preview feels closer to Google Maps and stays in one compact location. */
+.route-sheet-topbar {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:10px;
+}
+
+.route-sheet-topbar strong {
+  color:#111827;
+  font-size:18px;
+  font-weight:800;
+  letter-spacing:-.02em;
+}
+
+.route-sheet-close {
+  width:38px;
+  height:38px;
+  border:0;
+  border-radius:50%;
+  background:#f1f5f9;
+  color:#344054;
+  font:inherit;
+  font-size:18px;
+  font-weight:800;
+  cursor:pointer;
+}
+
+.route-mode-strip {
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+  gap:6px;
+  padding:4px 0 10px;
+  border-bottom:1px solid #edf2f7;
+  margin-bottom:10px;
+}
+
+.route-mode-strip button {
+  min-height:52px;
+  border:0;
+  border-radius:14px;
+  background:#f8fafc;
+  color:#475467;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:2px;
+  font:inherit;
+  font-size:11px;
+  font-weight:800;
+  cursor:pointer;
+}
+
+.route-mode-strip button.active {
+  background:#eaf2ff;
+  color:#0b63f6;
+  box-shadow:inset 0 0 0 1px #cfe0ff;
+}
+
+.route-mode-strip .travel-icon {
+  font-size:18px;
+  line-height:1;
+}
+
+.route-preview--premium {
+  bottom:16px !important;
+  padding:10px 12px 12px !important;
+}
+
+.route-preview--premium .route-preview-handle {
+  margin-bottom:8px;
+}
+
+.route-preview-actions--compact {
+  margin-top:10px;
+}
+
+.route-preview-actions--compact .route-preview-action {
+  min-height:40px;
+}
+
+@media (max-width: 768px) {
+  .route-sheet-topbar strong { font-size:17px; }
+  .route-sheet-close { width:36px; height:36px; }
+  .route-mode-strip button { min-height:50px; font-size:10px; }
+  .route-mode-strip .travel-icon { font-size:17px; }
+}

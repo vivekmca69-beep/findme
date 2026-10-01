@@ -24,7 +24,7 @@
         <button type="button" [class.active]="mapMode === 'satellite'" (click)="setMapMode('satellite')">Satellite</button>
       </div>
 
-      <div class="route-mode-toggle glass" role="group" aria-label="Travel mode">
+      <div class="route-mode-toggle glass" role="group" aria-label="Travel mode" *ngIf="!vehicleNavigationActive || vehicleDirectionsStarted">
         <button type="button" [class.active]="routePreferenceMode === 'car'" (click)="setRoutePreferenceMode('car')" [disabled]="isRouteProcessing" aria-label="Car route">
           <span class="travel-icon">🚗</span><span>Car</span>
         </button>
@@ -99,6 +99,23 @@
     <div class="vehicle-route-preview route-preview--premium" *ngIf="vehicleNavigationActive && !vehicleDirectionsStarted">
       <div class="route-preview-handle" aria-hidden="true"></div>
 
+      <div class="route-sheet-topbar">
+        <strong>{{ personalNavigationKind === 'group-host' ? 'Directions to host' : 'Directions' }}</strong>
+        <button type="button" class="route-sheet-close" (click)="stopVehicleNavigation()" aria-label="Close route">✕</button>
+      </div>
+
+      <div class="route-mode-strip" role="group" aria-label="Travel mode in route sheet">
+        <button type="button" [class.active]="routePreferenceMode === 'car'" (click)="setRoutePreferenceMode('car')" [disabled]="isRouteProcessing" aria-label="Car route">
+          <span class="travel-icon">🚗</span><span>Car</span>
+        </button>
+        <button type="button" [class.active]="routePreferenceMode === 'two_wheeler'" (click)="setRoutePreferenceMode('two_wheeler')" [disabled]="isRouteProcessing" aria-label="Motorcycle or scooter route">
+          <span class="travel-icon">🏍️</span><span>2-Wheeler</span>
+        </button>
+        <button type="button" [class.active]="routePreferenceMode === 'walking'" (click)="setRoutePreferenceMode('walking')" [disabled]="isRouteProcessing" aria-label="Walking route">
+          <span class="travel-icon">🚶</span><span>Walk</span>
+        </button>
+      </div>
+
       <div class="route-target-row">
         <div class="route-target-icon">{{ routeTargetIcon }}</div>
         <div class="route-target-copy">
@@ -141,9 +158,8 @@
         </div>
       </div>
 
-      <div class="route-preview-actions">
+      <div class="route-preview-actions route-preview-actions--compact">
         <button type="button" class="route-preview-action" (click)="recenterOnMe()" [disabled]="!latestOwnLocation">⌖ Re-centre</button>
-        <button type="button" class="route-preview-action" (click)="stopVehicleNavigation()">✕ Close route</button>
       </div>
     </div>
 
