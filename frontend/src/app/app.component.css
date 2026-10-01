@@ -2144,3 +2144,138 @@ body.findme-vehicle-directions-open {
   .route-mode-strip button { min-height:50px; font-size:10px; }
   .route-mode-strip .travel-icon { font-size:17px; }
 }
+
+/* V21 mobile map controls -------------------------------------------------
+   All 3 travel modes must be visible at once; no horizontal swipe required.
+   Group navigation controls sit at the bottom of the map above Google attribution. */
+.route-mode-toggle,
+.map-stage--fullscreen .route-mode-toggle {
+  width:min(292px, 100%) !important;
+  max-width:100% !important;
+  display:grid !important;
+  grid-template-columns:repeat(3, minmax(0,1fr)) !important;
+  gap:4px !important;
+  padding:4px !important;
+  overflow:visible !important;
+  border-radius:16px !important;
+}
+
+.route-mode-toggle button,
+.map-stage--fullscreen .route-mode-toggle button {
+  width:100% !important;
+  min-width:0 !important;
+  flex:1 1 0 !important;
+  min-height:46px !important;
+  padding:4px 3px !important;
+  border-radius:12px !important;
+  gap:1px !important;
+  font-size:9px !important;
+  white-space:nowrap !important;
+}
+
+.route-mode-toggle .travel-icon,
+.map-stage--fullscreen .route-mode-toggle .travel-icon {
+  font-size:16px !important;
+  line-height:1 !important;
+}
+
+.route-mode-toggle button span:last-child,
+.map-stage--fullscreen .route-mode-toggle button span:last-child {
+  font-size:9px !important;
+  line-height:1.1 !important;
+  white-space:nowrap !important;
+}
+
+.group-map-actions {
+  left:12px !important;
+  right:12px !important;
+  bottom:42px !important;
+  gap:8px !important;
+  align-items:center !important;
+}
+
+.group-map-action {
+  height:48px !important;
+  min-width:48px !important;
+  border-radius:16px !important;
+  padding:0 14px !important;
+}
+
+.group-map-action--primary {
+  flex:1 1 auto !important;
+  justify-content:center !important;
+}
+
+.group-map-action--primary > span:last-child {
+  font-size:13px !important;
+}
+
+/* Keep transient status/toast above the bottom navigation controls. */
+.map-stage--guest-session .map-status {
+  bottom:102px !important;
+}
+
+.map-compass-overlay {
+  bottom:42px !important;
+}
+
+@media (max-width:600px) {
+  .map-top-stack,
+  .map-stage--fullscreen .map-top-stack {
+    right:68px !important;
+  }
+
+  .route-mode-toggle,
+  .map-stage--fullscreen .route-mode-toggle {
+    width:min(286px, 100%) !important;
+  }
+
+  .route-mode-toggle button,
+  .map-stage--fullscreen .route-mode-toggle button {
+    min-height:44px !important;
+    padding:3px 2px !important;
+  }
+
+  .route-mode-toggle .travel-icon,
+  .map-stage--fullscreen .route-mode-toggle .travel-icon {
+    font-size:15px !important;
+  }
+
+  .group-map-actions {
+    left:10px !important;
+    right:10px !important;
+    bottom:40px !important;
+  }
+
+  .group-map-action {
+    height:46px !important;
+    min-width:46px !important;
+  }
+
+  .map-stage--guest-session .map-status {
+    bottom:96px !important;
+  }
+
+  .map-compass-overlay {
+    left:10px !important;
+    right:10px !important;
+    bottom:40px !important;
+  }
+}
+
+@media (max-width:390px) {
+  .route-mode-toggle,
+  .map-stage--fullscreen .route-mode-toggle {
+    width:100% !important;
+  }
+
+  .route-mode-toggle button,
+  .map-stage--fullscreen .route-mode-toggle button {
+    font-size:8.5px !important;
+  }
+
+  .route-mode-toggle .travel-icon,
+  .map-stage--fullscreen .route-mode-toggle .travel-icon {
+    font-size:14px !important;
+  }
+}

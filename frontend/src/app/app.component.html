@@ -14,6 +14,7 @@
   <section class="map-stage"
            [class.map-stage--fullscreen]="isMapFullscreen"
            [class.map-stage--has-session]="isSharing"
+           [class.map-stage--guest-session]="isSharing && !isHost"
            [class.map-stage--vehicle-active]="vehicleNavigationActive"
            [class.map-stage--vehicle-directions]="vehicleDirectionsStarted">
     <div id="map" class="map" aria-label="Map showing your location, routes, vehicle and connected people"></div>
