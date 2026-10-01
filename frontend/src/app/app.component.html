@@ -62,6 +62,39 @@
       <button class="map-control glass" type="button" *ngIf="latestOwnLocation" (click)="recenterOnMe()" aria-label="Recenter map on me">⌖</button>
     </div>
 
+    <div class="group-map-actions" *ngIf="isSharing && !isHost && !vehicleNavigationActive && !vehicleDirectionsStarted && !compassActive">
+      <button class="group-map-action group-map-action--primary"
+              type="button"
+              (click)="startNavigation('host')"
+              [disabled]="isBusy('navigateHost')"
+              [attr.aria-busy]="isBusy('navigateHost')">
+        <span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('navigateHost')" aria-hidden="true"></span>
+        <ng-container *ngIf="!isBusy('navigateHost')">🧭</ng-container>
+        <span>{{ isBusy('navigateHost') ? 'Routing…' : 'Navigate to host' }}</span>
+      </button>
+      <button class="group-map-action"
+              type="button"
+              (click)="toggleCompass('host')"
+              [disabled]="isBusy('compassHost')"
+              [attr.aria-busy]="isBusy('compassHost')"
+              aria-label="Compass to host">
+        <span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('compassHost')" aria-hidden="true"></span>
+        <ng-container *ngIf="!isBusy('compassHost')">↑</ng-container>
+      </button>
+    </div>
+
+    <div class="map-compass-overlay" *ngIf="compassActive && isSharing && !isHost && !vehicleDirectionsStarted">
+      <div class="map-compass-direction">
+        <div class="map-compass-arrow" [style.transform]="'rotate(' + compassRotation + 'deg)'">↑</div>
+      </div>
+      <div class="map-compass-copy">
+        <small>Compass to {{ compassTargetName }}</small>
+        <strong>{{ compassDistanceText || '—' }}</strong>
+        <span>{{ compassBearing | number:'1.0-0' }}° bearing</span>
+      </div>
+      <button type="button" class="map-compass-close" (click)="toggleCompass('host')" aria-label="Close compass">✕</button>
+    </div>
+
     <!-- Route selection / preview -->
     <div class="vehicle-route-preview route-preview--premium" *ngIf="vehicleNavigationActive && !vehicleDirectionsStarted">
       <div class="route-preview-handle" aria-hidden="true"></div>
@@ -115,7 +148,7 @@
     </div>
 
     <!-- Premium turn-by-turn style guidance -->
-    <div class="vehicle-guidance-card vehicle-guidance-card--google" *ngIf="vehicleDirectionsStarted">
+    <div class="vehicle-guidance-card vehicle-guidance-card--compact" *ngIf="vehicleDirectionsStarted">
       <div class="vehicle-guidance-main">
         <div class="vehicle-guidance-arrow" aria-hidden="true">{{ vehicleManeuverIcon(vehicleManeuver) }}</div>
         <div class="vehicle-guidance-copy">
@@ -123,7 +156,10 @@
           <strong>{{ vehicleInstruction || 'Follow the highlighted route' }}</strong>
         </div>
       </div>
-      <div class="vehicle-guidance-next" *ngIf="vehicleNextInstruction">Then {{ vehicleNextInstruction }}</div>
+    </div>
+
+    <div class="vehicle-guidance-next-card" *ngIf="vehicleDirectionsStarted && vehicleNextInstruction">
+      Then {{ vehicleNextInstruction }}
     </div>
 
     <div class="reroute-pill" *ngIf="vehicleDirectionsStarted && isRerouting">
@@ -142,12 +178,10 @@
       <button class="vehicle-side-control"
               type="button"
               (click)="showActiveRouteOverview()"
-              aria-label="Show route overview">
-        ↗
-      </button>
+              aria-label="Show route overview">✦</button>
     </div>
 
-    <div class="vehicle-navigation-footer vehicle-navigation-footer--google" *ngIf="vehicleDirectionsStarted">
+    <div class="vehicle-navigation-footer vehicle-navigation-footer--compact" *ngIf="vehicleDirectionsStarted">
       <div class="vehicle-nav-summary">
         <strong>{{ durationText || '—' }}</strong>
         <span>{{ distanceText || '—' }}<ng-container *ngIf="vehicleArrivalTimeText"> · {{ vehicleArrivalTimeText }}</ng-container></span>
@@ -156,24 +190,11 @@
           <ng-container *ngIf="offRouteDistanceText"> · {{ offRouteDistanceText }}</ng-container>
         </small>
       </div>
-      <div class="vehicle-footer-actions">
-        <button class="vehicle-ghost-button" type="button" (click)="showActiveRouteOverview()">Overview</button>
-        <button class="vehicle-exit-button" type="button" (click)="exitVehicleDirections()">Exit</button>
-      </div>
+      <button class="vehicle-overview-button" type="button" (click)="showActiveRouteOverview()" aria-label="Overview">✦</button>
+      <button class="vehicle-exit-button" type="button" (click)="exitVehicleDirections()">Exit</button>
     </div>
   </section>
 
-
-  <section class="compass-panel" *ngIf="compassActive">
-    <div class="compass-dial">
-      <div class="compass-arrow" [style.transform]="'rotate(' + compassRotation + 'deg)'">↑</div>
-    </div>
-    <div>
-      <span class="micro-label">COMPASS TO {{ compassTargetName }}</span>
-      <strong>{{ compassDistanceText || '—' }}</strong>
-      <small>Bearing {{ compassBearing | number:'1.0-0' }}° · Heading {{ compassHeading | number:'1.0-0' }}°</small>
-    </div>
-  </section>
 
   <section class="quick-grid">
     <article class="feature-card vehicle-card vehicle-card--safe">
@@ -262,17 +283,6 @@
           <span class="host-badge">⭐ HOST</span>
         </div>
 
-        <div class="advanced-actions">
-          <button class="tool-button" type="button" *ngIf="!isHost" (click)="startNavigation('host')" [disabled]="isBusy('navigateHost')" [attr.aria-busy]="isBusy('navigateHost')">
-            <span><span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('navigateHost')" aria-hidden="true"></span><ng-container *ngIf="!isBusy('navigateHost')">🧭</ng-container></span>
-            <strong>{{ isBusy('navigateHost') ? 'Calculating route…' : 'Navigate to host' }}</strong><small>Live route guidance</small>
-          </button>
-          <button class="tool-button" type="button" *ngIf="!isHost" (click)="toggleCompass('host')" [disabled]="isBusy('compassHost')" [attr.aria-busy]="isBusy('compassHost')">
-            <span><span class="btn-spinner btn-spinner--dark" *ngIf="isBusy('compassHost')" aria-hidden="true"></span><ng-container *ngIf="!isBusy('compassHost')">↑</ng-container></span>
-            <strong>{{ isBusy('compassHost') ? 'Starting compass…' : 'Compass to host' }}</strong><small>Direct bearing</small>
-          </button>
-        </div>
-
         <div class="participant-list">
           <div class="participant-row" *ngFor="let person of participants">
             <div class="participant-avatar" [class.host]="person.isHost">
@@ -298,7 +308,7 @@
 
         <div class="group-note">
           <strong>Participant status</strong>
-          <span>Live = updated within 15 seconds, Recent = within 60 seconds, Offline = no update for more than a minute.</span>
+          <span>Live = updated within 15 seconds, Recent = within 60 seconds, Offline = no update for more than a minute. Use the map actions for host navigation and compass.</span>
         </div>
 
         <button class="btn btn-danger" type="button" (click)="stopSharing()" [disabled]="isSessionActionBusy" [attr.aria-busy]="isBusy('stopSharing')">
